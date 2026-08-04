@@ -1,6 +1,15 @@
 # SKU Roles and Privileges Network
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Open Source](https://img.shields.io/badge/Open%20Source-Yes-brightgreen.svg)](LICENSE)
+
 A local, read-only desktop application for exploring the relationships between roles and privileges for one SKU at a time.
+
+## Open source
+
+This project is completely open source. You may use, inspect, modify, and redistribute the application, including for commercial purposes, under the permissive [MIT License](LICENSE). Contributions and forks are welcome.
+
+The application runs locally and does not send workbook data to an external service. Third-party Python packages and components retain their own open-source licenses.
 
 ## Start
 
@@ -56,3 +65,7 @@ Individual users are deliberately not displayed as nodes. This keeps large SKU n
 - **Export PNG…** creates a clean image directly from the network data, including the SKU, service, active filters, legend, and export time. It does not take a screen capture.
 - **Export Excel…** includes workbook metadata, all active filters, visible nodes and relationships, and both visible and complete details for a selected node.
 - After export, the application can open the containing folder.
+
+## License
+
+Copyright (c) 2026 Sandor Nieuwenhuijs. Released under the [MIT License](LICENSE).
