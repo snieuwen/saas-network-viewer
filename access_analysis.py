@@ -55,8 +55,8 @@ def load_workbook_info(source: str | Path | BinaryIO) -> dict[str, object]:
 def build_network_data(
     frame: pd.DataFrame,
     *,
-    max_roles: int = 8,
-    max_privileges: int = 12,
+    max_roles: int = 30,
+    max_privileges: int = 30,
     max_relationships: int = 36,
     role_query: str = "",
     privilege_query: str = "",
@@ -77,8 +77,8 @@ def build_network_data(
     if clean.empty:
         return _empty_network()
 
-    maximum_roles = max(1, int(max_roles))
-    maximum_privileges = max(1, int(max_privileges))
+    maximum_roles = max(10, int(max_roles))
+    maximum_privileges = max(10, int(max_privileges))
     maximum_relationships = max(1, int(max_relationships))
     minimum = max(1, int(min_shared_users))
     candidate_edges = (

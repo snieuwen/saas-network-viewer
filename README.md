@@ -38,10 +38,11 @@ The source workbook is only read and is never modified.
 ## Filter the network
 
 - **Search roles** and **Search privileges** match names case-insensitively.
-- **Maximum roles**, **Maximum privileges**, and **Maximum relationships** keep the graph readable. Search results always respect these limits.
+- **Maximum roles**, **Maximum privileges**, and **Maximum relationships** keep the graph readable. Role and privilege limits default to 30 and accept values from 10 through 100. Search results always respect these limits.
 - **Minimum shared users** removes relationships below the chosen threshold.
 - Choose **Apply filters**, press Enter in a numeric field, or use a spinbox arrow to apply numeric changes.
-- Choose **Reset filters** to return to the readable default view.
+- Choose **Reset filters** to return to the default of 30 roles and 30 privileges.
+- The filter summary shows the number displayed alongside the total number available before the limits are applied.
 - The graph selects a connected set of the strongest relationships while maximising useful role and privilege coverage.
 
 ## Explore the network
@@ -51,7 +52,7 @@ The source workbook is only read and is never modified.
 - Line width represents distinct users shared by that role and privilege in the complete SKU.
 - A star marks the most connected nodes in the currently visible network.
 - Hover over a node or line to see exact details.
-- Select a node to inspect its relationships. With **Focus selected node** enabled, the graph shows only its direct neighbours.
+- Select a node to highlight its relationships while keeping the complete visible network in place. Enable **Show only selected node's connections** to hide unrelated nodes and relationships instead.
 - Clear a selection by selecting the same node again, clicking empty graph space, pressing **Esc**, or choosing **Clear selection**.
 - Switch the detail table between **Visible relationships** and **All relationships**.
 - Sort the detail table by selecting a column heading. Double-click a row to navigate to that node. Press **Ctrl+C** to copy selected rows.
