@@ -1,4 +1,7 @@
 .venv/
+.build_tools/
+build/
+dist/
 __pycache__/
 *.pyc
 .streamlit/secrets.toml

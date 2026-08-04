@@ -14,18 +14,6 @@ from network_view import NetworkView
 
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
-NAMED_DEFAULT_SOURCE = APP_DIR.parent / "Rotterdam Raw Data 20260703.xlsx"
-
-
-def find_default_source() -> Path:
-    if NAMED_DEFAULT_SOURCE.exists():
-        return NAMED_DEFAULT_SOURCE
-    candidates = sorted(
-        APP_DIR.parent.glob("*Raw Data*.xlsx"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    return candidates[0] if candidates else NAMED_DEFAULT_SOURCE
 
 
 class SkuNetworkApp:
@@ -47,19 +35,18 @@ class SkuNetworkApp:
         self.loading_token = 0
         self.load_results: queue.Queue[tuple[object, ...]] = queue.Queue()
         self.details_visible = False
-        self.source_var = tk.StringVar(value=str(find_default_source()))
-        self.source_name_var = tk.StringVar(value=find_default_source().name)
+        self.source_var = tk.StringVar()
+        self.source_name_var = tk.StringVar()
         self.sku_var = tk.StringVar()
-        self.service_var = tk.StringVar(value="No SKU selected")
+        self.service_var = tk.StringVar()
         self.user_count_var = tk.StringVar(value="—")
         self.prepared_for_var = tk.StringVar(value="Prepared for: —")
         self.dates_var = tk.StringVar(value="Usage data collected: —    |    DT data collected: —")
-        self.status_var = tk.StringVar(value="Loading data…")
+        self.status_var = tk.StringVar(value="Choose a workbook to begin")
         self.workbook_toggle_var = tk.StringVar(value="Workbook details ▸")
 
         self._configure_style()
         self._build_ui()
-        self.root.after(100, self.load_source)
 
     def _configure_style(self) -> None:
         style = ttk.Style()
@@ -149,10 +136,11 @@ class SkuNetworkApp:
         self.details_visible = not self.details_visible
 
     def browse_source(self) -> None:
-        current = Path(self.source_var.get())
+        current_value = self.source_var.get().strip()
+        current = Path(current_value) if current_value else None
         filename = filedialog.askopenfilename(
             title="Select source workbook",
-            initialdir=str(current.parent if current.parent.exists() else APP_DIR.parent),
+            initialdir=str(current.parent if current and current.parent.exists() else APP_DIR),
             filetypes=(("Excel workbooks", "*.xlsx *.xlsm"), ("All files", "*.*")),
         )
         if filename:
@@ -326,7 +314,7 @@ class SkuNetworkApp:
 
     def clear_sku(self) -> None:
         self.sku_var.set("")
-        self.service_var.set("No SKU selected")
+        self.service_var.set("")
         self.user_count_var.set("—")
         if not self.data.empty:
             self.network_view.set_data(self.data.iloc[0:0].copy())

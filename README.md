@@ -13,10 +13,10 @@ The application runs locally and does not send workbook data to an external serv
 
 ## Start
 
-1. Keep the application folder next to the source workbook, or choose another workbook after startup.
-2. Double-click `start_app.bat`.
-3. If a packaged `SKU_Network_Viewer.exe` is present, the launcher uses it. Otherwise it starts the Python version.
-4. SKU `B108674` is selected by default when it exists in the workbook.
+1. Download the real Windows executable using [Download SKU Network Viewer](https://github.com/snieuwen/Fusion-SaaS-network-viewer/raw/refs/heads/main/SKU_Network_Viewer.exe). The complete file is approximately 43 MB; a file of roughly 151 KB is the GitHub web page, not the application.
+2. Start `SKU_Network_Viewer.exe`, or double-click `start_app.bat` when running from the complete source folder.
+3. Choose a workbook in the application. No workbook, SKU, or service is selected at startup.
+4. If Windows SmartScreen warns about the unsigned application, verify that it came from this repository before choosing **More info** and **Run anyway**.
 
 The source workbook is only read and is never modified.
 
