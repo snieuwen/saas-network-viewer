@@ -2,8 +2,8 @@
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
-if exist "SKU_Network_Viewer.exe" (
-  start "" "SKU_Network_Viewer.exe"
+if exist "saas-network-viewer.exe" (
+  start "" "saas-network-viewer.exe"
   exit /b 0
 )
 
