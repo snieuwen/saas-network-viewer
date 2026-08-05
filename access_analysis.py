@@ -131,29 +131,14 @@ def build_network_data(
             break
 
     # Then add the strongest remaining relationships between the selected nodes.
-    candidate_weights = {
-        (str(edge.ROLE_CODE), str(edge.PRIVILEGE)): int(edge.WEIGHT)
-        for edge in candidates
-    }
-    selected_edges: list[dict[str, object]] = [
-        {
-            "SOURCE": f"role:{role}",
-            "TARGET": f"privilege:{privilege}",
-            "WEIGHT": candidate_weights[(role, privilege)],
-        }
-        for role, privilege in sorted(
-            chosen_pairs,
-            key=lambda pair: (-candidate_weights[pair], pair[0], pair[1]),
-        )
-    ]
+    # The relationship limit is a coverage budget for choosing the initial node
+    # set. Once those nodes are known, draw every eligible relationship between
+    # them so the overview does not misleadingly resemble a one-to-one mapping.
+    selected_edges: list[dict[str, object]] = []
     for edge in candidates:
-        if len(selected_edges) >= maximum_relationships:
-            break
         role = str(edge.ROLE_CODE)
         privilege = str(edge.PRIVILEGE)
         if role not in roles or privilege not in privileges:
-            continue
-        if (role, privilege) in chosen_pairs:
             continue
         selected_edges.append(
             {

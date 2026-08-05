@@ -42,10 +42,10 @@ The source workbook is only read and is never modified.
 ## Filter the network
 
 - **Search roles** and **Search privileges** match names case-insensitively.
-- **Maximum roles**, **Maximum privileges**, and **Maximum relationships** keep the initial graph readable. All three limits default to 30; the role and privilege spinboxes use the actual number available for the selected SKU as their upper bound. Search results always respect these limits.
+- **Maximum roles**, **Maximum privileges**, and **Relationships for node selection** determine the initial node set. All three default to 30; the role and privilege spinboxes use the actual number available for the selected SKU as their upper bound. Once the initial nodes are selected, every matching relationship between those nodes is drawn without adding further nodes. Search results always respect these settings.
 - **Minimum shared users** removes relationships below the chosen threshold.
 - Choose **Apply filters**, press Enter in a numeric field, or use a spinbox arrow to apply numeric changes.
-- Choose **Reset filters** to return to the default of 30 roles, 30 privileges, and 30 relationships.
+- Choose **Reset filters** to return to the default of 30 roles, 30 privileges, and 30 relationships used for node selection.
 - The filter summary shows the number displayed alongside the total number available before the limits are applied.
 - The graph selects a connected set of the strongest relationships while maximising useful role and privilege coverage.
 
@@ -53,8 +53,9 @@ The source workbook is only read and is never modified.
 
 - Circles represent roles; squares represent privileges.
 - Roles and privileges are packed independently: larger nodes receive more vertical space, while smaller nodes use less.
-- The initial vertical order starts from total SKU users (then name) and applies two weighted topology passes to reduce line crossings. When a selection reveals hidden connections, the added nodes are inserted using the same topology ordering while nodes that were already visible retain their relative order. Changing the filters creates a new initial order.
-- Temporarily added roles and privileges use lighter variants of their normal colours and are identified separately in the legend and Excel export.
+- The initial vertical order starts from total SKU users (then name) and applies two weighted topology passes to reduce line crossings. When a selection reveals hidden connections, the revealed nodes are inserted using the same topology ordering while nodes that were already visible retain their relative order. Changing the filters creates a new initial order.
+- Roles and privileges revealed by a selection use lighter variants of their normal colours. The legend places **Revealed roles** beside **Roles** and **Revealed privileges** beside **Privileges**; the Excel export identifies them as **Revealed by selection**.
+- When a role or privilege maximum hides available nodes, a note below the affected column identifies the limiting control. The note is omitted when all matching nodes are shown.
 - Node size represents total distinct users for that role or privilege in the complete SKU.
 - Line width represents distinct users shared by that role and privilege in the complete SKU.
 - A star marks the most connected nodes in the currently visible network.

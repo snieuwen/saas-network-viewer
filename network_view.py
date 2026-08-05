@@ -116,7 +116,9 @@ class NetworkView(ttk.Frame):
             command=self.schedule_refresh,
         )
         minimum_shared.grid(row=1, column=1, sticky="w", padx=(5, 12), pady=(7, 0))
-        ttk.Label(filters, text="Maximum relationships").grid(row=1, column=2, sticky="w", pady=(7, 0))
+        ttk.Label(filters, text="Relationships for node selection").grid(
+            row=1, column=2, sticky="w", pady=(7, 0)
+        )
         relationship_limit = ttk.Spinbox(
             filters,
             from_=1,
@@ -171,20 +173,20 @@ class NetworkView(ttk.Frame):
         role_swatch.create_oval(2, 2, 12, 12, fill=KIND_COLOURS["role"], outline="")
         role_swatch.pack(side="left", padx=(0, 3))
         ttk.Label(actions, text="Roles").pack(side="left")
+        added_role_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
+        added_role_swatch.create_oval(2, 2, 12, 12, fill=ADDED_KIND_COLOURS["role"], outline="")
+        added_role_swatch.pack(side="left", padx=(14, 3))
+        ttk.Label(actions, text="Revealed roles").pack(side="left")
         privilege_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
         privilege_swatch.create_rectangle(2, 2, 12, 12, fill=KIND_COLOURS["privilege"], outline="")
         privilege_swatch.pack(side="left", padx=(14, 3))
         ttk.Label(actions, text="Privileges").pack(side="left")
-        added_role_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
-        added_role_swatch.create_oval(2, 2, 12, 12, fill=ADDED_KIND_COLOURS["role"], outline="")
-        added_role_swatch.pack(side="left", padx=(14, 3))
-        ttk.Label(actions, text="Added roles").pack(side="left")
         added_privilege_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
         added_privilege_swatch.create_rectangle(
             2, 2, 12, 12, fill=ADDED_KIND_COLOURS["privilege"], outline=""
         )
         added_privilege_swatch.pack(side="left", padx=(14, 3))
-        ttk.Label(actions, text="Added privileges").pack(side="left")
+        ttk.Label(actions, text="Revealed privileges").pack(side="left")
         ttk.Label(actions, text="★ Most connected visible nodes").pack(side="left", padx=(14, 0))
 
         ttk.Button(actions, text="Export PNG…", command=self.export_png).pack(side="right")
@@ -352,7 +354,9 @@ class NetworkView(ttk.Frame):
             )
             return None
         if not 1 <= relationships <= 500:
-            self.filter_error_var.set("Maximum relationships must be between 1 and 500.")
+            self.filter_error_var.set(
+                "Relationships for node selection must be between 1 and 500."
+            )
             return None
         if not 1 <= minimum <= 100000:
             self.filter_error_var.set("Minimum shared users must be between 1 and 100,000.")
@@ -673,6 +677,33 @@ class NetworkView(ttk.Frame):
         baseline_ids = set(self.nodes.get("ID", pd.Series(dtype="string")).astype(str))
         return set(nodes.get("ID", pd.Series(dtype="string")).astype(str)) - baseline_ids
 
+    def _limit_notes(self, nodes: pd.DataFrame) -> dict[str, str]:
+        if self.frame.empty:
+            return {}
+        try:
+            limits = {
+                "role": int(self.roles_var.get()),
+                "privilege": int(self.privileges_var.get()),
+            }
+        except (TypeError, ValueError, tk.TclError):
+            return {}
+        filtered = self._filtered_assignments()
+        available = {
+            "role": int(filtered["ROLE_CODE"].nunique()),
+            "privilege": int(filtered["PRIVILEGE"].nunique()),
+        }
+        shown = {
+            kind: int(nodes["KIND"].eq(kind).sum()) if not nodes.empty else 0
+            for kind in ("role", "privilege")
+        }
+        labels = {"role": "roles", "privilege": "privileges"}
+        control_labels = {"role": "Maximum roles", "privilege": "Maximum privileges"}
+        return {
+            kind: f"… not all {labels[kind]} are shown because of the {control_labels[kind]} limit"
+            for kind in ("role", "privilege")
+            if available[kind] > shown[kind] and limits[kind] < available[kind]
+        }
+
     def _node_radius(self, weight: int, *, scale: float | None = None) -> float:
         display_scale = self.zoom_factor if scale is None else scale
         return display_scale * (5 + 7.5 * math.sqrt(max(0, weight) / self.max_node_weight))
@@ -740,7 +771,16 @@ class NetworkView(ttk.Frame):
             )
             vertical_positions[kind] = y_positions
             column_bottoms.append(bottom)
-        content_height = max(viewport_height - 4, max(column_bottoms, default=38) + 34)
+        limit_notes = self._limit_notes(nodes)
+        note_bottoms = [
+            column_bottoms[index] + 54
+            for index, kind in enumerate(("role", "privilege"))
+            if kind in limit_notes
+        ]
+        content_height = max(
+            viewport_height - 4,
+            max(column_bottoms + note_bottoms, default=38) + 34,
+        )
         self.canvas.configure(scrollregion=(0, 0, content_width, content_height))
         columns = {"role": content_width * 0.34, "privilege": content_width * 0.67}
         heading_y = self.canvas.canvasy(viewport_height / 2)
@@ -761,6 +801,16 @@ class NetworkView(ttk.Frame):
         for kind, x in columns.items():
             for node_id in ordered[kind]:
                 self.positions[node_id] = (x, vertical_positions[kind][node_id])
+            if kind in limit_notes:
+                column_index = 0 if kind == "role" else 1
+                self.canvas.create_text(
+                    x,
+                    column_bottoms[column_index] + 28,
+                    text=limit_notes[kind],
+                    anchor="n",
+                    fill="#6B7680",
+                    font=("Segoe UI", max(8, int(9 * self.zoom_factor)), "italic"),
+                )
 
         display_neighbours = self._neighbours_for_edges(edges)
         temporary_node_ids = self._temporary_node_ids(nodes)
@@ -1026,7 +1076,7 @@ class NetworkView(ttk.Frame):
             connected_kind = "privileges" if row["KIND"] == "role" else "roles"
             detail += f" — showing all {self.expansion_connection_count:,} connected {connected_kind}"
             if self.expansion_added_nodes:
-                detail += f" ({self.expansion_added_nodes:,} added to the overview)"
+                detail += f" ({self.expansion_added_nodes:,} revealed by selection)"
         self.detail_var.set(detail)
         self.selection_users_var.set(f"Selected {kind.lower()} users: {int(row['WEIGHT']):,}")
         details = visible_details if self.detail_scope_var.get() == "visible" else all_details
@@ -1161,7 +1211,13 @@ class NetworkView(ttk.Frame):
             )
             packed_positions[kind] = y_positions
             packed_bottoms.append(bottom)
-        height = max(760, int(max(packed_bottoms, default=graph_top) + 80))
+        limit_notes = self._limit_notes(nodes)
+        note_bottoms = [
+            packed_bottoms[index] + 70
+            for index, kind in enumerate(("role", "privilege"))
+            if kind in limit_notes
+        ]
+        height = max(760, int(max(packed_bottoms + note_bottoms, default=graph_top) + 80))
         image = Image.new("RGB", (width, height), "white")
         draw = ImageDraw.Draw(image)
 
@@ -1183,7 +1239,7 @@ class NetworkView(ttk.Frame):
             f"Role search: {self.role_search_var.get().strip() or 'None'}  |  "
             f"Privilege search: {self.privilege_search_var.get().strip() or 'None'}  |  "
             f"Maximum roles: {self.roles_var.get()}  |  Maximum privileges: {self.privileges_var.get()}  |  "
-            f"Maximum relationships: {self.relationships_var.get()}  |  "
+            f"Relationships for node selection: {self.relationships_var.get()}  |  "
             f"Minimum shared users: {self.min_shared_var.get()}"
         )
         draw.text((50, 118), filters, fill="#455A64", font=font(15))
@@ -1195,14 +1251,14 @@ class NetworkView(ttk.Frame):
         )
         draw.ellipse((50, 182, 66, 198), fill=KIND_COLOURS["role"])
         draw.text((74, 179), "Roles", fill="#263238", font=font(14))
-        draw.rectangle((150, 182, 166, 198), fill=KIND_COLOURS["privilege"])
-        draw.text((174, 179), "Privileges", fill="#263238", font=font(14))
-        draw.ellipse((320, 182, 336, 198), fill=ADDED_KIND_COLOURS["role"])
-        draw.text((344, 179), "Added roles", fill="#263238", font=font(14))
-        draw.rectangle((460, 182, 476, 198), fill=ADDED_KIND_COLOURS["privilege"])
-        draw.text((484, 179), "Added privileges", fill="#263238", font=font(14))
-        draw.text((650, 179), "★ Most connected visible nodes", fill="#263238", font=font(14))
-        draw.text((950, 179), "Node size = total SKU users; line width = shared SKU users", fill="#263238", font=font(14))
+        draw.ellipse((150, 182, 166, 198), fill=ADDED_KIND_COLOURS["role"])
+        draw.text((174, 179), "Revealed roles", fill="#263238", font=font(14))
+        draw.rectangle((330, 182, 346, 198), fill=KIND_COLOURS["privilege"])
+        draw.text((354, 179), "Privileges", fill="#263238", font=font(14))
+        draw.rectangle((450, 182, 466, 198), fill=ADDED_KIND_COLOURS["privilege"])
+        draw.text((474, 179), "Revealed privileges", fill="#263238", font=font(14))
+        draw.text((680, 179), "★ Most connected visible nodes", fill="#263238", font=font(14))
+        draw.text((980, 179), "Node size = total SKU users; line width = shared SKU users", fill="#263238", font=font(14))
 
         positions: dict[str, tuple[float, float]] = {}
         columns = {"role": width * 0.34, "privilege": width * 0.66}
@@ -1229,6 +1285,18 @@ class NetworkView(ttk.Frame):
             x = columns[kind]
             for node_id in ordered[kind]:
                 positions[node_id] = (x, packed_positions[kind][node_id])
+            if kind in limit_notes:
+                column_index = 0 if kind == "role" else 1
+                note = limit_notes[kind]
+                note_font = font(14)
+                note_bounds = draw.textbbox((0, 0), note, font=note_font)
+                note_width = note_bounds[2] - note_bounds[0]
+                draw.text(
+                    (x - note_width / 2, packed_bottoms[column_index] + 30),
+                    note,
+                    fill="#6B7680",
+                    font=note_font,
+                )
         for edge in edges.itertuples(index=False):
             source, target = str(edge.SOURCE), str(edge.TARGET)
             if source not in positions or target not in positions:
@@ -1290,7 +1358,7 @@ class NetworkView(ttk.Frame):
                     ("Privilege search", self.privilege_search_var.get().strip()),
                     ("Maximum roles", max_roles),
                     ("Maximum privileges", max_privileges),
-                    ("Maximum relationships", max_relationships),
+                    ("Relationships for node selection", max_relationships),
                     ("Minimum shared users", minimum),
                     ("Selected node", self.selected_node or ""),
                     ("Show only selected node's connections", bool(self.focus_mode_var.get())),
@@ -1316,7 +1384,7 @@ class NetworkView(ttk.Frame):
                         "KIND": "Type",
                         "WEIGHT": "Total SKU users",
                         "CONNECTIONS": "Visible relationships",
-                        "TEMPORARILY_ADDED": "Temporarily added",
+                        "TEMPORARILY_ADDED": "Revealed by selection",
                         "MOST_CONNECTED_VISIBLE": "Most connected visible node",
                     }
                 )
