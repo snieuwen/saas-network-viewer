@@ -53,6 +53,7 @@ The source workbook is only read and is never modified.
 
 - Circles represent roles; squares represent privileges.
 - Roles and privileges are packed independently: larger nodes receive more vertical space, while smaller nodes use less.
+- The initial vertical order starts from total SKU users (then name) and applies two weighted topology passes to reduce line crossings. That order remains fixed while selecting nodes; newly revealed connections are appended without moving nodes that were already visible. Changing the filters creates a new initial order.
 - Node size represents total distinct users for that role or privilege in the complete SKU.
 - Line width represents distinct users shared by that role and privilege in the complete SKU.
 - A star marks the most connected nodes in the currently visible network.

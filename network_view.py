@@ -38,6 +38,7 @@ class NetworkView(ttk.Frame):
         self.edge_items: dict[int, tuple[str, str, int]] = {}
         self.neighbours: dict[str, set[str]] = {}
         self.key_nodes: set[str] = set()
+        self.base_order: dict[str, list[str]] = {"role": [], "privilege": []}
         self.selected_node: str | None = None
         self.hover_item: tuple[str, object] | None = None
         self.current_details = pd.DataFrame()
@@ -353,6 +354,7 @@ class NetworkView(ttk.Frame):
         if self.frame.empty:
             self.nodes = pd.DataFrame()
             self.edges = pd.DataFrame()
+            self.base_order = {"role": [], "privilege": []}
             self._clear_selected_expansion()
             self.role_total_var.set("0 visible")
             self.privilege_total_var.set("0 visible")
@@ -408,6 +410,7 @@ class NetworkView(ttk.Frame):
         self.selected_node = None
         self._clear_selected_expansion()
         self._build_neighbours()
+        self.base_order = self._topology_order(self.nodes, self.edges)
         self._fill_detail_tree(pd.DataFrame())
         if filtered.empty:
             self.empty_message = "No role or privilege names match the current search. Reset the filters to continue."
@@ -601,7 +604,7 @@ class NetworkView(ttk.Frame):
         ]
         return nodes, edges
 
-    def _ordered_ids(self, nodes: pd.DataFrame, edges: pd.DataFrame) -> dict[str, list[str]]:
+    def _topology_order(self, nodes: pd.DataFrame, edges: pd.DataFrame) -> dict[str, list[str]]:
         role_nodes = nodes[nodes["KIND"].eq("role")].sort_values(
             ["WEIGHT", "LABEL"], ascending=[False, True], kind="stable"
         )
@@ -636,6 +639,25 @@ class NetworkView(ttk.Frame):
                 )
             privileges.sort(key=lambda value: (privilege_score[value], value))
         return {"role": roles, "privilege": privileges}
+
+    def _ordered_ids(self, nodes: pd.DataFrame, edges: pd.DataFrame) -> dict[str, list[str]]:
+        if not any(self.base_order.values()):
+            return self._topology_order(nodes, edges)
+
+        ordered: dict[str, list[str]] = {}
+        for kind in ("role", "privilege"):
+            kind_nodes = nodes[nodes["KIND"].eq(kind)].copy()
+            available = set(kind_nodes["ID"].astype(str))
+            existing = [node_id for node_id in self.base_order[kind] if node_id in available]
+            existing_set = set(existing)
+            added = (
+                kind_nodes[~kind_nodes["ID"].astype(str).isin(existing_set)]
+                .sort_values(["WEIGHT", "LABEL"], ascending=[False, True], kind="stable")["ID"]
+                .astype(str)
+                .tolist()
+            )
+            ordered[kind] = existing + added
+        return ordered
 
     def _node_radius(self, weight: int, *, scale: float | None = None) -> float:
         display_scale = self.zoom_factor if scale is None else scale
