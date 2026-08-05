@@ -323,7 +323,9 @@ class NetworkView(ttk.Frame):
             self.pane.add(self.detail_frame, weight=1)
             self.details_visible = True
             self.details_button.configure(text="Hide details")
-            self.after_idle(self._set_initial_sash)
+            self.pane.update_idletasks()
+            self._set_initial_sash()
+            self.after(25, self._set_initial_sash)
 
     def _set_detail_actions_enabled(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
