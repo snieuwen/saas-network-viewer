@@ -14,6 +14,7 @@ from access_analysis import build_network_data
 
 KIND_LABELS = {"role": "Roles", "privilege": "Privileges"}
 KIND_COLOURS = {"role": "#F2B134", "privilege": "#63B995"}
+ADDED_KIND_COLOURS = {"role": "#F8D889", "privilege": "#A6DDC8"}
 MINIMUM_NODE_LIMIT = 10
 DEFAULT_ROLE_LIMIT = 30
 DEFAULT_PRIVILEGE_LIMIT = 30
@@ -174,6 +175,16 @@ class NetworkView(ttk.Frame):
         privilege_swatch.create_rectangle(2, 2, 12, 12, fill=KIND_COLOURS["privilege"], outline="")
         privilege_swatch.pack(side="left", padx=(14, 3))
         ttk.Label(actions, text="Privileges").pack(side="left")
+        added_role_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
+        added_role_swatch.create_oval(2, 2, 12, 12, fill=ADDED_KIND_COLOURS["role"], outline="")
+        added_role_swatch.pack(side="left", padx=(14, 3))
+        ttk.Label(actions, text="Added roles").pack(side="left")
+        added_privilege_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
+        added_privilege_swatch.create_rectangle(
+            2, 2, 12, 12, fill=ADDED_KIND_COLOURS["privilege"], outline=""
+        )
+        added_privilege_swatch.pack(side="left", padx=(14, 3))
+        ttk.Label(actions, text="Added privileges").pack(side="left")
         ttk.Label(actions, text="★ Most connected visible nodes").pack(side="left", padx=(14, 0))
 
         ttk.Button(actions, text="Export PNG…", command=self.export_png).pack(side="right")
@@ -644,20 +655,23 @@ class NetworkView(ttk.Frame):
         if not any(self.base_order.values()):
             return self._topology_order(nodes, edges)
 
+        topology_order = self._topology_order(nodes, edges)
         ordered: dict[str, list[str]] = {}
         for kind in ("role", "privilege"):
             kind_nodes = nodes[nodes["KIND"].eq(kind)].copy()
             available = set(kind_nodes["ID"].astype(str))
             existing = [node_id for node_id in self.base_order[kind] if node_id in available]
             existing_set = set(existing)
-            added = (
-                kind_nodes[~kind_nodes["ID"].astype(str).isin(existing_set)]
-                .sort_values(["WEIGHT", "LABEL"], ascending=[False, True], kind="stable")["ID"]
-                .astype(str)
-                .tolist()
-            )
-            ordered[kind] = existing + added
+            existing_iterator = iter(existing)
+            ordered[kind] = [
+                next(existing_iterator) if node_id in existing_set else node_id
+                for node_id in topology_order[kind]
+            ]
         return ordered
+
+    def _temporary_node_ids(self, nodes: pd.DataFrame) -> set[str]:
+        baseline_ids = set(self.nodes.get("ID", pd.Series(dtype="string")).astype(str))
+        return set(nodes.get("ID", pd.Series(dtype="string")).astype(str)) - baseline_ids
 
     def _node_radius(self, weight: int, *, scale: float | None = None) -> float:
         display_scale = self.zoom_factor if scale is None else scale
@@ -749,6 +763,7 @@ class NetworkView(ttk.Frame):
                 self.positions[node_id] = (x, vertical_positions[kind][node_id])
 
         display_neighbours = self._neighbours_for_edges(edges)
+        temporary_node_ids = self._temporary_node_ids(nodes)
         active = (
             {self.selected_node} | display_neighbours.get(self.selected_node, set())
             if self.selected_node and not self.focus_mode_var.get()
@@ -777,11 +792,17 @@ class NetworkView(ttk.Frame):
             x, y = self.positions[node_id]
             radius = radii[node_id]
             muted = active is not None and node_id not in active
-            fill = "#CED5DA" if muted else KIND_COLOURS[str(row.KIND)]
+            fill = (
+                "#CED5DA"
+                if muted
+                else (
+                    ADDED_KIND_COLOURS[str(row.KIND)]
+                    if node_id in temporary_node_ids
+                    else KIND_COLOURS[str(row.KIND)]
+                )
+            )
             if node_id == self.selected_node:
                 outline, outline_width = "#174A7E", 3
-            elif node_id in self.key_nodes and not muted:
-                outline, outline_width = "#7A5200", 3
             else:
                 outline, outline_width = "#FFFFFF", 1
             if str(row.KIND) == "role":
@@ -1176,8 +1197,12 @@ class NetworkView(ttk.Frame):
         draw.text((74, 179), "Roles", fill="#263238", font=font(14))
         draw.rectangle((150, 182, 166, 198), fill=KIND_COLOURS["privilege"])
         draw.text((174, 179), "Privileges", fill="#263238", font=font(14))
-        draw.text((320, 179), "★ Most connected visible nodes", fill="#263238", font=font(14))
-        draw.text((650, 179), "Node size = total SKU users; line width = shared SKU users", fill="#263238", font=font(14))
+        draw.ellipse((320, 182, 336, 198), fill=ADDED_KIND_COLOURS["role"])
+        draw.text((344, 179), "Added roles", fill="#263238", font=font(14))
+        draw.rectangle((460, 182, 476, 198), fill=ADDED_KIND_COLOURS["privilege"])
+        draw.text((484, 179), "Added privileges", fill="#263238", font=font(14))
+        draw.text((650, 179), "★ Most connected visible nodes", fill="#263238", font=font(14))
+        draw.text((950, 179), "Node size = total SKU users; line width = shared SKU users", fill="#263238", font=font(14))
 
         positions: dict[str, tuple[float, float]] = {}
         columns = {"role": width * 0.34, "privilege": width * 0.66}
@@ -1210,6 +1235,7 @@ class NetworkView(ttk.Frame):
                 continue
             line_width = max(1, int(1 + 6 * math.sqrt(int(edge.WEIGHT) / self.max_edge_weight)))
             draw.line((*positions[source], *positions[target]), fill="#78909C", width=line_width)
+        temporary_node_ids = self._temporary_node_ids(nodes)
         for row in nodes.itertuples(index=False):
             node_id = str(row.ID)
             if node_id not in positions:
@@ -1217,13 +1243,18 @@ class NetworkView(ttk.Frame):
             x, y = positions[node_id]
             radius = radii[node_id]
             box = (x - radius, y - radius, x + radius, y + radius)
+            fill = (
+                ADDED_KIND_COLOURS[str(row.KIND)]
+                if node_id in temporary_node_ids
+                else KIND_COLOURS[str(row.KIND)]
+            )
             if row.KIND == "role":
-                draw.ellipse(box, fill=KIND_COLOURS["role"], outline="#174A7E" if node_id == self.selected_node else "white", width=3)
+                draw.ellipse(box, fill=fill, outline="#174A7E" if node_id == self.selected_node else "white", width=3)
                 label = ("★ " if node_id in self.key_nodes else "") + str(row.LABEL)
                 bounds = draw.textbbox((0, 0), label, font=font(14))
                 draw.text((x - radius - 10 - (bounds[2] - bounds[0]), y - 9), label, fill="#263238", font=font(14))
             else:
-                draw.rectangle(box, fill=KIND_COLOURS["privilege"], outline="#174A7E" if node_id == self.selected_node else "white", width=3)
+                draw.rectangle(box, fill=fill, outline="#174A7E" if node_id == self.selected_node else "white", width=3)
                 label = ("★ " if node_id in self.key_nodes else "") + str(row.LABEL)
                 draw.text((x + radius + 10, y - 9), label, fill="#263238", font=font(14))
         image.save(filename, "PNG", optimize=True)
@@ -1272,9 +1303,11 @@ class NetworkView(ttk.Frame):
             nodes = display_nodes.copy()
             if not nodes.empty:
                 display_neighbours = self._neighbours_for_edges(display_edges)
+                temporary_node_ids = self._temporary_node_ids(display_nodes)
                 nodes["CONNECTIONS"] = nodes["ID"].map(
                     lambda value: len(display_neighbours.get(str(value), set()))
                 )
+                nodes["TEMPORARILY_ADDED"] = nodes["ID"].astype(str).isin(temporary_node_ids)
                 nodes["MOST_CONNECTED_VISIBLE"] = nodes["ID"].astype(str).isin(self.key_nodes)
                 nodes = nodes.rename(
                     columns={
@@ -1283,6 +1316,7 @@ class NetworkView(ttk.Frame):
                         "KIND": "Type",
                         "WEIGHT": "Total SKU users",
                         "CONNECTIONS": "Visible relationships",
+                        "TEMPORARILY_ADDED": "Temporarily added",
                         "MOST_CONNECTED_VISIBLE": "Most connected visible node",
                     }
                 )
