@@ -803,11 +803,14 @@ class NetworkView(ttk.Frame):
                 self.positions[node_id] = (x, vertical_positions[kind][node_id])
             if kind in limit_notes:
                 column_index = 0 if kind == "role" else 1
+                largest_radius = max((radii[node_id] for node_id in ordered[kind]), default=0)
+                note_x = x - largest_radius - 6 if kind == "role" else x + largest_radius + 6
                 self.canvas.create_text(
-                    x,
+                    note_x,
                     column_bottoms[column_index] + 28,
                     text=limit_notes[kind],
-                    anchor="n",
+                    anchor="ne" if kind == "role" else "nw",
+                    justify="right" if kind == "role" else "left",
                     fill="#6B7680",
                     font=("Segoe UI", max(8, int(9 * self.zoom_factor)), "italic"),
                 )
@@ -1291,8 +1294,14 @@ class NetworkView(ttk.Frame):
                 note_font = font(14)
                 note_bounds = draw.textbbox((0, 0), note, font=note_font)
                 note_width = note_bounds[2] - note_bounds[0]
+                largest_radius = max((radii[node_id] for node_id in ordered[kind]), default=0)
+                note_x = (
+                    x - largest_radius - 10 - note_width
+                    if kind == "role"
+                    else x + largest_radius + 10
+                )
                 draw.text(
-                    (x - note_width / 2, packed_bottoms[column_index] + 30),
+                    (note_x, packed_bottoms[column_index] + 30),
                     note,
                     fill="#6B7680",
                     font=note_font,
