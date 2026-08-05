@@ -1,9 +1,9 @@
-# SKU Roles and Privileges Network
+# Oracle Fusion SaaS network viewer
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-brightgreen.svg)](LICENSE)
 
-A local, read-only desktop application for exploring the relationships between roles and privileges for one SKU at a time.
+Oracle Fusion SaaS network viewer is a local, read-only desktop application for exploring the relationships between roles and privileges for one SKU at a time.
 
 ## Open source
 
@@ -13,7 +13,7 @@ The application runs locally and does not send workbook data to an external serv
 
 ## Start
 
-1. Download the real Windows executable using [Download SaaS Network Viewer](https://github.com/snieuwen/Fusion-SaaS-network-viewer/raw/refs/heads/main/saas-network-viewer.exe). The complete file is approximately 43 MB; a file of roughly 151 KB is the GitHub web page, not the application.
+1. Download the real Windows executable using [Download SaaS Network Viewer](https://github.com/snieuwen/saas-network-viewer/raw/refs/heads/main/saas-network-viewer.exe). The complete file is approximately 43 MB; a file of roughly 151 KB is the GitHub web page, not the application.
 2. Start `saas-network-viewer.exe`, or double-click `start_app.bat` when running from the complete source folder.
 3. Choose a workbook in the application. No workbook, SKU, or service is selected at startup.
 4. If Windows SmartScreen warns about the unsigned application, verify that it came from this repository before choosing **More info** and **Run anyway**.
