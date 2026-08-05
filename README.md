@@ -42,7 +42,7 @@ The source workbook is only read and is never modified.
 ## Filter the network
 
 - **Search roles** and **Search privileges** match names case-insensitively.
-- **Maximum roles**, **Maximum privileges**, and **Maximum relationships** keep the graph readable. All three limits default to 30; role and privilege limits accept values from 10 through 100. Search results always respect these limits.
+- **Maximum roles**, **Maximum privileges**, and **Maximum relationships** keep the initial graph readable. All three limits default to 30; the role and privilege spinboxes use the actual number available for the selected SKU as their upper bound. Search results always respect these limits.
 - **Minimum shared users** removes relationships below the chosen threshold.
 - Choose **Apply filters**, press Enter in a numeric field, or use a spinbox arrow to apply numeric changes.
 - Choose **Reset filters** to return to the default of 30 roles, 30 privileges, and 30 relationships.
@@ -57,7 +57,8 @@ The source workbook is only read and is never modified.
 - Line width represents distinct users shared by that role and privilege in the complete SKU.
 - A star marks the most connected nodes in the currently visible network.
 - Hover over a node or line to see exact details.
-- Select a node to highlight its relationships while keeping the complete visible network in place. Enable **Show only selected node's connections** to hide unrelated nodes and relationships instead.
+- Select a node to highlight its relationships while keeping the complete visible network in place. **Show all connections for selected node** is enabled by default: selecting a role adds any connected privileges omitted by the initial limits, and selecting a privilege adds any omitted connected roles. This works in either direction, including when selecting a node that was just added. Clear the selection to restore the initial limited overview.
+- Enable **Show only selected node's connections** to hide unrelated nodes and relationships instead. Active text searches and **Minimum shared users** still apply to expanded selections.
 - Clear a selection by selecting the same node again, clicking empty graph space, pressing **Esc**, or choosing **Clear selection**.
 - Switch the detail table between **Visible relationships** and **All relationships**.
 - Sort the detail table by selecting a column heading. Double-click a row to navigate to that node. Press **Ctrl+C** to copy selected rows.
