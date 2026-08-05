@@ -993,13 +993,23 @@ class NetworkView(ttk.Frame):
         match = display_nodes[display_nodes["ID"].astype(str).eq(node_id)]
         if match.empty:
             return
+        label = str(match.iloc[0]["LABEL"])
         self.selected_node = node_id
         self._build_selected_expansion()
+        self._copy_node_name_to_clipboard(label)
         self._set_detail_actions_enabled(True)
         self.detail_scope_var.set("visible")
         self._update_detail_for_selection()
         self.canvas.yview_moveto(0)
         self.draw()
+
+    def _copy_node_name_to_clipboard(self, label: str) -> None:
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(label)
+            self.update_idletasks()
+        except tk.TclError:
+            pass
 
     def clear_focus(self) -> None:
         self.selected_node = None

@@ -60,7 +60,7 @@ The source workbook is only read and is never modified.
 - Line width represents distinct users shared by that role and privilege in the complete SKU.
 - A star marks the most connected nodes in the currently visible network.
 - Hover over a node or line to see exact details.
-- Select a node to highlight its relationships while keeping the complete visible network in place. **Show all connections for selected node** is enabled by default: selecting a role adds any connected privileges omitted by the initial limits, and selecting a privilege adds any omitted connected roles. This works in either direction, including when selecting a node that was just added. Clear the selection to restore the initial limited overview.
+- Select a node to highlight its relationships while keeping the complete visible network in place. The selected role or privilege name is also copied automatically to the Windows clipboard. **Show all connections for selected node** is enabled by default: selecting a role adds any connected privileges omitted by the initial limits, and selecting a privilege adds any omitted connected roles. This works in either direction, including when selecting a node that was just added. Clear the selection to restore the initial limited overview.
 - Enable **Show only selected node's connections** to hide unrelated nodes and relationships instead. Active text searches and **Minimum shared users** still apply to expanded selections.
 - Clear a selection by selecting the same node again, clicking empty graph space, pressing **Esc**, or choosing **Clear selection**.
 - Switch the detail table between **Visible relationships** and **All relationships**.
