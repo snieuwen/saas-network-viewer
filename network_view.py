@@ -197,7 +197,7 @@ class NetworkView(ttk.Frame):
             highlightbackground="#C7CDD4",
         )
         x_scroll = ttk.Scrollbar(canvas_frame, orient="horizontal", command=self.canvas.xview)
-        y_scroll = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.canvas.yview)
+        y_scroll = ttk.Scrollbar(canvas_frame, orient="vertical", command=self._scroll_canvas_y)
         self.canvas.configure(xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
         self.canvas.grid(row=0, column=0, sticky="nsew")
         y_scroll.grid(row=0, column=1, sticky="ns")
@@ -208,7 +208,7 @@ class NetworkView(ttk.Frame):
         self.canvas.bind("<Leave>", lambda _event: self._hide_tooltip())
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<ButtonPress-2>", lambda event: self.canvas.scan_mark(event.x, event.y))
-        self.canvas.bind("<B2-Motion>", lambda event: self.canvas.scan_dragto(event.x, event.y, gain=1))
+        self.canvas.bind("<B2-Motion>", self._scan_drag_canvas)
         self.canvas.bind_all("<Escape>", lambda _event: self.clear_focus())
         self.pane.add(canvas_frame, weight=4)
 
@@ -707,7 +707,7 @@ class NetworkView(ttk.Frame):
         content_height = max(viewport_height - 4, max(column_bottoms, default=38) + 34)
         self.canvas.configure(scrollregion=(0, 0, content_width, content_height))
         columns = {"role": content_width * 0.34, "privilege": content_width * 0.67}
-        heading_y = content_height / 2
+        heading_y = self.canvas.canvasy(viewport_height / 2)
         headings = {
             "role": (22, 90),
             "privilege": (content_width - 22, 270),
@@ -720,6 +720,7 @@ class NetworkView(ttk.Frame):
                 angle=angle,
                 fill="#38434F",
                 font=("Segoe UI", max(20, int(26 * self.zoom_factor)), "bold"),
+                tags=("__column_heading__",),
             )
         for kind, x in columns.items():
             for node_id in ordered[kind]:
@@ -1050,7 +1051,24 @@ class NetworkView(ttk.Frame):
             self.canvas.xview_scroll(int(-event.delta / 120), "units")
         else:
             self.canvas.yview_scroll(int(-event.delta / 120), "units")
+            self._reposition_column_headings()
         return "break"
+
+    def _scroll_canvas_y(self, *args: str) -> None:
+        self.canvas.yview(*args)
+        self._reposition_column_headings()
+
+    def _scan_drag_canvas(self, event: tk.Event) -> None:
+        self.canvas.scan_dragto(event.x, event.y, gain=1)
+        self._reposition_column_headings()
+
+    def _reposition_column_headings(self) -> None:
+        center_y = self.canvas.canvasy(self.canvas.winfo_height() / 2)
+        for item in self.canvas.find_withtag("__column_heading__"):
+            coordinates = self.canvas.coords(item)
+            if len(coordinates) >= 2:
+                self.canvas.coords(item, coordinates[0], center_y)
+                self.canvas.tag_raise(item)
 
     def _zoom_by(self, factor: float) -> None:
         self.zoom_factor = min(1.8, max(0.65, self.zoom_factor * factor))
