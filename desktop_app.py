@@ -19,7 +19,7 @@ APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
 class OracleFusionSaaSNetworkViewerApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Oracle Fusion SaaS network viewer")
+        self.root.title("Oracle Fusion SaaS Roles and Privileges network")
         screen_width = root.winfo_screenwidth()
         screen_height = root.winfo_screenheight()
         width = min(1420, max(900, screen_width - 80))
@@ -64,7 +64,11 @@ class OracleFusionSaaSNetworkViewerApp:
 
         title_row = ttk.Frame(outer)
         title_row.pack(fill="x")
-        ttk.Label(title_row, text="Oracle Fusion SaaS network viewer", style="Title.TLabel").pack(side="left")
+        ttk.Label(
+            title_row,
+            text="Oracle Fusion SaaS Roles and Privileges network",
+            style="Title.TLabel",
+        ).pack(side="left")
         self.progress = ttk.Progressbar(title_row, mode="indeterminate", length=150)
         self.source_button = ttk.Button(title_row, text="Change workbook…", command=self.browse_source)
         self.source_button.pack(side="right")

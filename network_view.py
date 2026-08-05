@@ -894,7 +894,12 @@ class NetworkView(ttk.Frame):
             except OSError:
                 return ImageFont.load_default()
 
-        draw.text((50, 35), "Oracle Fusion SaaS network viewer", fill="#1F4E78", font=font(30, bold=True))
+        draw.text(
+            (50, 35),
+            "Oracle Fusion SaaS Roles and Privileges network",
+            fill="#1F4E78",
+            font=font(30, bold=True),
+        )
         draw.text((50, 82), f"SKU: {self._sku_name()}  |  Service: {self._service_name()}", fill="#263238", font=font(18, bold=True))
         filters = (
             f"Role search: {self.role_search_var.get().strip() or 'None'}  |  "
