@@ -11,6 +11,10 @@ This project is completely open source. You may use, inspect, modify, and redist
 
 The application runs locally and does not send workbook data to an external service. Third-party Python packages and components retain their own open-source licenses.
 
+## Independent personal project
+
+This is an independent personal project by Sandor Nieuwenhuijs. It is not an Oracle Corporation product or project and is not sponsored, endorsed, approved, maintained, supported, or warranted by Oracle or its affiliates. Oracle and related product names are trademarks of Oracle and/or its affiliates and are used only to identify the services this viewer relates to. See the [LICENSE](LICENSE) for the complete non-affiliation, trademark, confidentiality, warranty, and liability notices.
+
 ## Start
 
 1. Download the real Windows executable using [Download SaaS Network Viewer](https://github.com/snieuwen/saas-network-viewer/raw/refs/heads/main/saas-network-viewer.exe). The complete file is approximately 43 MB; a file of roughly 151 KB is the GitHub web page, not the application.

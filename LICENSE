@@ -19,3 +19,38 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+PERSONAL PROJECT AND NON-AFFILIATION NOTICE
+
+This software is an independent personal project created and maintained by
+Sandor Nieuwenhuijs in his personal capacity. It is not a product, project,
+service, publication, or other work of Oracle Corporation or any of its
+affiliates. It is not sponsored, endorsed, approved, maintained, supported, or
+warranted by Oracle Corporation or any of its affiliates. Any past or present
+employment or other relationship between the author and Oracle Corporation
+does not make this an Oracle project.
+
+Oracle, Java, MySQL, and NetSuite are registered trademarks of Oracle and/or
+its affiliates. Oracle Fusion and other product or service names may also be
+trademarks of their respective owners. Their use in this project is solely
+descriptive and referential. No trademark license is granted or claimed, and
+no affiliation, sponsorship, or endorsement should be inferred.
+
+This repository is not intended for Oracle confidential information,
+proprietary source material, customer data, credentials, or other information
+that a contributor is not authorised to disclose. Do not submit such material
+to this project.
+
+In addition to the warranty and liability exclusions in the MIT License, and
+to the fullest extent permitted by applicable law, the author makes no
+representation or warranty regarding the accuracy, completeness, security,
+availability, compatibility, or fitness of this software or its output. The
+software is not official Oracle documentation, advice, support, or tooling.
+Users are solely responsible for testing, backups, security review, regulatory
+and contractual compliance, and any decisions or actions based on the software
+or its output. The author will not be liable for data loss, business
+interruption, loss of profits, loss of use, or any direct, indirect,
+incidental, special, exemplary, or consequential damages arising from use of,
+or inability to use, this software.
