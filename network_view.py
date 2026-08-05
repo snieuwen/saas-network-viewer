@@ -20,6 +20,7 @@ DEFAULT_ROLE_LIMIT = 30
 DEFAULT_PRIVILEGE_LIMIT = 30
 DEFAULT_RELATIONSHIP_LIMIT = 30
 DEFAULT_MINIMUM_SHARED = 1
+DEFAULT_MINIMUM_NODE_USERS = 1
 
 
 class NetworkView(ttk.Frame):
@@ -47,11 +48,13 @@ class NetworkView(ttk.Frame):
         self.max_edge_weight = 1
         self.zoom_factor = 1.0
         self.search_job: str | None = None
+        self.details_visible = False
         self.empty_message = "Select a SKU to display its network."
 
         self.roles_var = tk.StringVar(value=str(DEFAULT_ROLE_LIMIT))
         self.privileges_var = tk.StringVar(value=str(DEFAULT_PRIVILEGE_LIMIT))
         self.min_shared_var = tk.StringVar(value=str(DEFAULT_MINIMUM_SHARED))
+        self.min_node_users_var = tk.StringVar(value=str(DEFAULT_MINIMUM_NODE_USERS))
         self.relationships_var = tk.StringVar(value=str(DEFAULT_RELATIONSHIP_LIMIT))
         self.role_search_var = tk.StringVar()
         self.privilege_search_var = tk.StringVar()
@@ -71,8 +74,8 @@ class NetworkView(ttk.Frame):
         self.after(500, self._set_initial_sash)
 
     def _build_controls(self) -> None:
-        filters = ttk.LabelFrame(self, text="Network filters", padding=(8, 6))
-        filters.pack(fill="x", pady=(0, 6))
+        filters = ttk.LabelFrame(self, text="Network filters", padding=(8, 3))
+        filters.pack(fill="x", pady=(0, 3))
         for column in (1, 5):
             filters.columnconfigure(column, weight=1)
 
@@ -106,7 +109,21 @@ class NetworkView(ttk.Frame):
         privilege_limit.grid(row=0, column=7, sticky="w", padx=(5, 0))
         self.privilege_limit_spinbox = privilege_limit
 
-        ttk.Label(filters, text="Minimum shared users").grid(row=1, column=0, sticky="w", pady=(7, 0))
+        ttk.Label(filters, text="Minimum role/privilege users").grid(
+            row=1, column=0, sticky="w", pady=(3, 0)
+        )
+        minimum_node_users = ttk.Spinbox(
+            filters,
+            from_=1,
+            to=100000,
+            textvariable=self.min_node_users_var,
+            width=8,
+            command=self.schedule_refresh,
+        )
+        minimum_node_users.grid(row=1, column=1, sticky="w", padx=(5, 12), pady=(3, 0))
+        ttk.Label(filters, text="Minimum shared users").grid(
+            row=1, column=2, sticky="w", pady=(3, 0)
+        )
         minimum_shared = ttk.Spinbox(
             filters,
             from_=1,
@@ -115,9 +132,9 @@ class NetworkView(ttk.Frame):
             width=8,
             command=self.schedule_refresh,
         )
-        minimum_shared.grid(row=1, column=1, sticky="w", padx=(5, 12), pady=(7, 0))
+        minimum_shared.grid(row=1, column=3, sticky="w", padx=(5, 18), pady=(3, 0))
         ttk.Label(filters, text="Relationships for node selection").grid(
-            row=1, column=2, sticky="w", pady=(7, 0)
+            row=1, column=4, sticky="w", pady=(3, 0)
         )
         relationship_limit = ttk.Spinbox(
             filters,
@@ -127,48 +144,54 @@ class NetworkView(ttk.Frame):
             width=6,
             command=self.schedule_refresh,
         )
-        relationship_limit.grid(row=1, column=3, sticky="w", padx=(5, 18), pady=(7, 0))
+        relationship_limit.grid(row=1, column=5, sticky="w", padx=(5, 18), pady=(3, 0))
         ttk.Button(filters, text="Apply filters", command=self.refresh).grid(
-            row=1, column=4, sticky="w", pady=(7, 0)
+            row=1, column=6, sticky="w", pady=(3, 0)
         )
         ttk.Button(filters, text="Reset filters", command=self.reset_filters).grid(
-            row=1, column=5, sticky="w", padx=(5, 18), pady=(7, 0)
+            row=1, column=7, sticky="w", padx=(5, 0), pady=(3, 0)
         )
         ttk.Checkbutton(
             filters,
             text="Show only selected node's connections",
             variable=self.focus_mode_var,
             command=self._selection_options_changed,
-        ).grid(row=1, column=6, columnspan=2, sticky="w", pady=(7, 0))
+        ).grid(row=2, column=4, columnspan=2, sticky="w", pady=(2, 0))
         ttk.Checkbutton(
             filters,
             text="Show all connections for selected node",
             variable=self.expand_selected_var,
             command=self._selection_options_changed,
-        ).grid(row=2, column=4, columnspan=4, sticky="e", pady=(4, 0))
+        ).grid(row=2, column=6, columnspan=2, sticky="e", pady=(2, 0))
         ttk.Label(filters, textvariable=self.network_summary_var).grid(
-            row=3, column=4, columnspan=4, sticky="e", padx=(10, 0), pady=(4, 0)
+            row=3, column=4, columnspan=4, sticky="e", padx=(10, 0), pady=(2, 0)
         )
         ttk.Label(filters, textvariable=self.filter_error_var, style="Error.TLabel").grid(
-            row=4, column=0, columnspan=8, sticky="w", pady=(4, 0)
+            row=3, column=0, columnspan=4, sticky="w", pady=(2, 0)
         )
         ttk.Label(filters, textvariable=self.role_total_var).grid(
-            row=2, column=0, columnspan=2, sticky="w", pady=(4, 0)
+            row=2, column=0, columnspan=2, sticky="w", pady=(2, 0)
         )
         ttk.Label(filters, textvariable=self.privilege_total_var).grid(
-            row=2, column=2, columnspan=2, sticky="w", pady=(4, 0)
+            row=2, column=2, columnspan=2, sticky="w", pady=(2, 0)
         )
 
         for widget in (role_search, privilege_search):
             widget.bind("<Escape>", lambda _event: self.reset_filters())
-        for widget in (role_limit, privilege_limit, minimum_shared, relationship_limit):
+        for widget in (
+            role_limit,
+            privilege_limit,
+            minimum_node_users,
+            minimum_shared,
+            relationship_limit,
+        ):
             widget.bind("<Return>", lambda _event: self.refresh())
             widget.bind("<FocusOut>", lambda _event: self.refresh())
         self.role_search_var.trace_add("write", lambda *_: self.schedule_refresh())
         self.privilege_search_var.trace_add("write", lambda *_: self.schedule_refresh())
 
         actions = ttk.Frame(self)
-        actions.pack(fill="x", pady=(0, 5))
+        actions.pack(fill="x", pady=(0, 3))
         role_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
         role_swatch.create_oval(2, 2, 12, 12, fill=KIND_COLOURS["role"], outline="")
         role_swatch.pack(side="left", padx=(0, 3))
@@ -191,6 +214,8 @@ class NetworkView(ttk.Frame):
 
         ttk.Button(actions, text="Export PNG…", command=self.export_png).pack(side="right")
         ttk.Button(actions, text="Export Excel…", command=self.export_excel).pack(side="right", padx=6)
+        self.details_button = ttk.Button(actions, text="Show details", command=self._toggle_details)
+        self.details_button.pack(side="right", padx=(6, 0))
         ttk.Button(actions, text="Fit width", command=self.fit_width).pack(side="right", padx=(12, 3))
         ttk.Button(actions, text="+", width=3, command=lambda: self._zoom_by(1.15)).pack(side="right")
         ttk.Button(actions, text="−", width=3, command=lambda: self._zoom_by(1 / 1.15)).pack(side="right", padx=3)
@@ -278,7 +303,7 @@ class NetworkView(ttk.Frame):
         self.detail_tree.bind("<Double-1>", self._focus_detail_row)
         self.detail_tree.bind("<Return>", self._focus_detail_row)
         self.detail_tree.bind("<Control-c>", self._copy_detail_rows)
-        self.pane.add(detail_frame, weight=1)
+        self.detail_frame = detail_frame
         self.clear_selection_button = next(
             widget for widget in header.winfo_children() if isinstance(widget, ttk.Button)
         )
@@ -286,8 +311,19 @@ class NetworkView(ttk.Frame):
 
     def _set_initial_sash(self) -> None:
         height = self.pane.winfo_height()
-        if height > 0:
+        if self.details_visible and len(self.pane.panes()) > 1 and height > 0:
             self.pane.sashpos(0, max(220, int(height * 0.72)))
+
+    def _toggle_details(self) -> None:
+        if self.details_visible:
+            self.pane.forget(self.detail_frame)
+            self.details_visible = False
+            self.details_button.configure(text="Show details")
+        else:
+            self.pane.add(self.detail_frame, weight=1)
+            self.details_visible = True
+            self.details_button.configure(text="Hide details")
+            self.after_idle(self._set_initial_sash)
 
     def _set_detail_actions_enabled(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
@@ -332,14 +368,15 @@ class NetworkView(ttk.Frame):
             self.after_cancel(self.search_job)
         self.search_job = self.after(300, self.refresh)
 
-    def _filter_values(self) -> tuple[int, int, int, int] | None:
+    def _filter_values(self) -> tuple[int, int, int, int, int] | None:
         try:
             roles = int(self.roles_var.get())
             privileges = int(self.privileges_var.get())
             relationships = int(self.relationships_var.get())
-            minimum = int(self.min_shared_var.get())
+            minimum_shared = int(self.min_shared_var.get())
+            minimum_node_users = int(self.min_node_users_var.get())
         except (TypeError, ValueError, tk.TclError):
-            self.filter_error_var.set("Limits and minimum shared users must be whole numbers.")
+            self.filter_error_var.set("Limits and minimum user values must be whole numbers.")
             return None
         maximum_roles = max(MINIMUM_NODE_LIMIT, int(self.frame["ROLE_CODE"].nunique()))
         maximum_privileges = max(MINIMUM_NODE_LIMIT, int(self.frame["PRIVILEGE"].nunique()))
@@ -358,11 +395,16 @@ class NetworkView(ttk.Frame):
                 "Relationships for node selection must be between 1 and 500."
             )
             return None
-        if not 1 <= minimum <= 100000:
+        if not 1 <= minimum_shared <= 100000:
             self.filter_error_var.set("Minimum shared users must be between 1 and 100,000.")
             return None
+        if not 1 <= minimum_node_users <= 100000:
+            self.filter_error_var.set(
+                "Minimum role/privilege users must be between 1 and 100,000."
+            )
+            return None
         self.filter_error_var.set("")
-        return roles, privileges, relationships, minimum
+        return roles, privileges, relationships, minimum_shared, minimum_node_users
 
     def refresh(self) -> None:
         self.search_job = None
@@ -383,7 +425,7 @@ class NetworkView(ttk.Frame):
         values = self._filter_values()
         if values is None:
             return
-        max_roles, max_privileges, max_relationships, minimum = values
+        max_roles, max_privileges, max_relationships, minimum_shared, minimum_node_users = values
         self.nodes, self.edges = build_network_data(
             self.frame,
             max_roles=max_roles,
@@ -391,23 +433,25 @@ class NetworkView(ttk.Frame):
             max_relationships=max_relationships,
             role_query=self.role_search_var.get(),
             privilege_query=self.privilege_search_var.get(),
-            min_shared_users=minimum,
+            min_shared_users=minimum_shared,
+            min_node_users=minimum_node_users,
         )
         filtered = self._filtered_assignments()
-        total_roles = self.frame["ROLE_CODE"].nunique()
-        total_privileges = self.frame["PRIVILEGE"].nunique()
         match_roles = filtered["ROLE_CODE"].nunique()
         match_privileges = filtered["PRIVILEGE"].nunique()
         visible_roles = int(self.nodes["KIND"].eq("role").sum()) if not self.nodes.empty else 0
         visible_privileges = int(self.nodes["KIND"].eq("privilege").sum()) if not self.nodes.empty else 0
-        available_roles = match_roles if self.role_search_var.get().strip() else total_roles
-        available_privileges = match_privileges if self.privilege_search_var.get().strip() else total_privileges
-        role_context = "matching" if self.role_search_var.get().strip() else "available"
-        privilege_context = "matching" if self.privilege_search_var.get().strip() else "available"
+        available_roles = match_roles
+        available_privileges = match_privileges
+        has_node_filter = minimum_node_users > 1
+        role_context = "matching" if self.role_search_var.get().strip() or has_node_filter else "available"
+        privilege_context = (
+            "matching" if self.privilege_search_var.get().strip() or has_node_filter else "available"
+        )
         eligible_relationships = (
             filtered.groupby(["ROLE_CODE", "PRIVILEGE"])["USER_LOGIN_HASH"]
             .nunique()
-            .ge(minimum)
+            .ge(minimum_shared)
         )
         total_relationships = int(eligible_relationships.sum())
         self.role_total_var.set(f"Roles: {visible_roles:,} shown of {available_roles:,} {role_context}")
@@ -428,10 +472,14 @@ class NetworkView(ttk.Frame):
         self.base_order = self._topology_order(self.nodes, self.edges)
         self._fill_detail_tree(pd.DataFrame())
         if filtered.empty:
-            self.empty_message = "No role or privilege names match the current search. Reset the filters to continue."
+            self.empty_message = (
+                "No roles or privileges match the current name and minimum-user filters. "
+                "Adjust or reset the filters to continue."
+            )
         elif self.nodes.empty:
             self.empty_message = (
-                f"No relationships have at least {minimum:,} shared users. Lower the minimum to continue."
+                f"No relationships have at least {minimum_shared:,} shared users. "
+                "Lower the minimum to continue."
             )
         else:
             self.empty_message = "No network data"
@@ -452,6 +500,7 @@ class NetworkView(ttk.Frame):
         self.roles_var.set(str(min(DEFAULT_ROLE_LIMIT, maximum_roles)))
         self.privileges_var.set(str(min(DEFAULT_PRIVILEGE_LIMIT, maximum_privileges)))
         self.min_shared_var.set(str(DEFAULT_MINIMUM_SHARED))
+        self.min_node_users_var.set(str(DEFAULT_MINIMUM_NODE_USERS))
         self.relationships_var.set(str(DEFAULT_RELATIONSHIP_LIMIT))
         self.role_search_var.set("")
         self.privilege_search_var.set("")
@@ -473,6 +522,27 @@ class NetworkView(ttk.Frame):
                 filtered["PRIVILEGE"].str.contains(
                     privilege_query, case=False, regex=False, na=False
                 )
+            ]
+        try:
+            minimum_node_users = max(1, int(self.min_node_users_var.get()))
+        except (TypeError, ValueError, tk.TclError):
+            minimum_node_users = DEFAULT_MINIMUM_NODE_USERS
+        if minimum_node_users > 1 and not self.frame.empty:
+            eligible_roles = set(
+                self.frame.groupby("ROLE_CODE")["USER_LOGIN_HASH"]
+                .nunique()
+                .loc[lambda values: values.ge(minimum_node_users)]
+                .index.astype(str)
+            )
+            eligible_privileges = set(
+                self.frame.groupby("PRIVILEGE")["USER_LOGIN_HASH"]
+                .nunique()
+                .loc[lambda values: values.ge(minimum_node_users)]
+                .index.astype(str)
+            )
+            filtered = filtered[
+                filtered["ROLE_CODE"].astype(str).isin(eligible_roles)
+                & filtered["PRIVILEGE"].astype(str).isin(eligible_privileges)
             ]
         return filtered
 
@@ -1253,6 +1323,7 @@ class NetworkView(ttk.Frame):
             f"Privilege search: {self.privilege_search_var.get().strip() or 'None'}  |  "
             f"Maximum roles: {self.roles_var.get()}  |  Maximum privileges: {self.privileges_var.get()}  |  "
             f"Relationships for node selection: {self.relationships_var.get()}  |  "
+            f"Minimum role/privilege users: {self.min_node_users_var.get()}  |  "
             f"Minimum shared users: {self.min_shared_var.get()}"
         )
         draw.text((50, 118), filters, fill="#455A64", font=font(15))
@@ -1359,7 +1430,13 @@ class NetworkView(ttk.Frame):
             values = self._filter_values()
             if values is None:
                 raise ValueError(self.filter_error_var.get())
-            max_roles, max_privileges, max_relationships, minimum = values
+            (
+                max_roles,
+                max_privileges,
+                max_relationships,
+                minimum_shared,
+                minimum_node_users,
+            ) = values
             display_nodes, display_edges = self._display_data()
             summary = pd.DataFrame(
                 [
@@ -1378,7 +1455,8 @@ class NetworkView(ttk.Frame):
                     ("Maximum roles", max_roles),
                     ("Maximum privileges", max_privileges),
                     ("Relationships for node selection", max_relationships),
-                    ("Minimum shared users", minimum),
+                    ("Minimum role/privilege users", minimum_node_users),
+                    ("Minimum shared users", minimum_shared),
                     ("Selected node", self.selected_node or ""),
                     ("Show only selected node's connections", bool(self.focus_mode_var.get())),
                     ("Show all connections for selected node", bool(self.expand_selected_var.get())),

@@ -51,14 +51,14 @@ class OracleFusionSaaSNetworkViewerApp:
         style = ttk.Style()
         if "vista" in style.theme_names():
             style.theme_use("vista")
-        style.configure("Title.TLabel", font=("Segoe UI", 19, "bold"), foreground="#1F4E78")
+        style.configure("Title.TLabel", font=("Segoe UI", 17, "bold"), foreground="#1F4E78")
         style.configure("InfoLabel.TLabel", font=("Segoe UI", 9, "bold"), foreground="#59636E")
         style.configure("InfoValue.TLabel", font=("Segoe UI", 11, "bold"), foreground="#263238")
         style.configure("UserValue.TLabel", font=("Segoe UI", 18, "bold"), foreground="#375623")
         style.configure("Error.TLabel", foreground="#A61B1B")
 
     def _build_ui(self) -> None:
-        outer = ttk.Frame(self.root, padding=12)
+        outer = ttk.Frame(self.root, padding=(10, 7))
         outer.pack(fill="both", expand=True)
 
         title_row = ttk.Frame(outer)
@@ -73,7 +73,7 @@ class OracleFusionSaaSNetworkViewerApp:
         self.source_button.pack(side="right")
 
         source_row = ttk.Frame(outer)
-        source_row.pack(fill="x", pady=(4, 0))
+        source_row.pack(fill="x", pady=(2, 0))
         ttk.Label(source_row, text="Workbook", style="InfoLabel.TLabel").pack(side="left")
         ttk.Label(source_row, textvariable=self.source_name_var, style="InfoValue.TLabel").pack(
             side="left", padx=(8, 0)
@@ -81,8 +81,8 @@ class OracleFusionSaaSNetworkViewerApp:
         ttk.Label(source_row, textvariable=self.prepared_for_var).pack(side="left", padx=(16, 0))
         ttk.Label(source_row, textvariable=self.dates_var).pack(side="right")
 
-        selector = ttk.LabelFrame(outer, text="SKU selection", padding=(8, 6))
-        selector.pack(fill="x", pady=(6, 6))
+        selector = ttk.LabelFrame(outer, text="SKU selection", padding=(7, 3))
+        selector.pack(fill="x", pady=(3, 3))
         selector.columnconfigure(0, weight=3)
         selector.columnconfigure(1, weight=5)
         ttk.Label(selector, text="Type any part of the SKU code or service name", style="InfoLabel.TLabel").grid(
@@ -113,7 +113,7 @@ class OracleFusionSaaSNetworkViewerApp:
 
         self.network_view = NetworkView(outer)
         self.network_view.pack(fill="both", expand=True)
-        ttk.Label(outer, textvariable=self.status_var).pack(anchor="e", pady=(4, 0))
+        ttk.Label(outer, textvariable=self.status_var).pack(anchor="e", pady=(2, 0))
 
     def browse_source(self) -> None:
         current_value = self.source_var.get().strip()

@@ -61,6 +61,7 @@ def build_network_data(
     role_query: str = "",
     privilege_query: str = "",
     min_shared_users: int = 1,
+    min_node_users: int = 1,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Create a bounded, connection-aware role/privilege network."""
     if frame.empty:
@@ -74,6 +75,24 @@ def build_network_data(
         clean = clean[clean["ROLE_CODE"].str.contains(role_query, case=False, regex=False, na=False)]
     if privilege_query:
         clean = clean[clean["PRIVILEGE"].str.contains(privilege_query, case=False, regex=False, na=False)]
+    minimum_node = max(1, int(min_node_users))
+    if minimum_node > 1:
+        eligible_roles = set(
+            full_clean.groupby("ROLE_CODE")["USER_LOGIN_HASH"]
+            .nunique()
+            .loc[lambda values: values.ge(minimum_node)]
+            .index.astype(str)
+        )
+        eligible_privileges = set(
+            full_clean.groupby("PRIVILEGE")["USER_LOGIN_HASH"]
+            .nunique()
+            .loc[lambda values: values.ge(minimum_node)]
+            .index.astype(str)
+        )
+        clean = clean[
+            clean["ROLE_CODE"].astype(str).isin(eligible_roles)
+            & clean["PRIVILEGE"].astype(str).isin(eligible_privileges)
+        ]
     if clean.empty:
         return _empty_network()
 
