@@ -38,6 +38,7 @@ class OracleFusionSaaSNetworkViewerApp:
         self.source_var = tk.StringVar()
         self.source_name_var = tk.StringVar()
         self.sku_var = tk.StringVar()
+        self.selected_sku_label = ""
         self.service_var = tk.StringVar()
         self.user_count_var = tk.StringVar(value="—")
         self.prepared_for_var = tk.StringVar(value="Prepared for: —")
@@ -70,7 +71,7 @@ class OracleFusionSaaSNetworkViewerApp:
             style="Title.TLabel",
         ).pack(side="left")
         self.progress = ttk.Progressbar(title_row, mode="indeterminate", length=150)
-        self.source_button = ttk.Button(title_row, text="Change workbook…", command=self.browse_source)
+        self.source_button = ttk.Button(title_row, text="Open workbook", command=self.browse_source)
         self.source_button.pack(side="right")
 
         source_row = ttk.Frame(outer)
@@ -98,32 +99,31 @@ class OracleFusionSaaSNetworkViewerApp:
         selector = ttk.LabelFrame(outer, text="SKU selection", padding=(8, 6))
         selector.pack(fill="x", pady=(6, 6))
         selector.columnconfigure(0, weight=3)
-        selector.columnconfigure(2, weight=5)
+        selector.columnconfigure(1, weight=5)
         ttk.Label(selector, text="Type any part of the SKU code or service name", style="InfoLabel.TLabel").grid(
-            row=0, column=0, columnspan=2, sticky="w"
+            row=0, column=0, sticky="w"
         )
         self.sku_combo = ttk.Combobox(selector, textvariable=self.sku_var, state="normal")
-        self.sku_combo.grid(row=1, column=0, sticky="ew", padx=(0, 6))
+        self.sku_combo.grid(row=1, column=0, sticky="ew", padx=(0, 14))
         self.sku_combo.bind("<<ComboboxSelected>>", lambda _event: self.select_sku())
         self.sku_combo.bind("<Return>", lambda _event: self.select_sku())
         self.sku_combo.bind("<KeyRelease>", self.filter_skus)
-        self.sku_combo.bind("<FocusOut>", lambda _event: self.clear_sku() if not self.sku_var.get().strip() else None)
-        self.clear_sku_button = ttk.Button(selector, text="Clear SKU", command=self.clear_sku)
-        self.clear_sku_button.grid(row=1, column=1, sticky="w", padx=(0, 14))
+        self.sku_combo.bind("<FocusOut>", lambda _event: self._restore_selected_sku())
+        self.sku_combo.bind("<Escape>", lambda _event: self._restore_selected_sku())
 
-        ttk.Label(selector, text="Service", style="InfoLabel.TLabel").grid(row=0, column=2, sticky="w")
+        ttk.Label(selector, text="Service", style="InfoLabel.TLabel").grid(row=0, column=1, sticky="w")
         self.service_label = ttk.Label(selector, textvariable=self.service_var, style="InfoValue.TLabel")
-        self.service_label.grid(row=1, column=2, sticky="w", padx=(0, 16))
+        self.service_label.grid(row=1, column=1, sticky="w", padx=(0, 16))
         selector.bind(
             "<Configure>",
             lambda event: self.service_label.configure(wraplength=max(260, int(event.width * 0.42))),
         )
 
         ttk.Label(selector, text="Total SKU users", style="InfoLabel.TLabel").grid(
-            row=0, column=3, sticky="e"
+            row=0, column=2, sticky="e"
         )
         ttk.Label(selector, textvariable=self.user_count_var, style="UserValue.TLabel").grid(
-            row=1, column=3, sticky="e"
+            row=1, column=2, sticky="e"
         )
 
         self.network_view = NetworkView(outer)
@@ -214,11 +214,11 @@ class OracleFusionSaaSNetworkViewerApp:
             )
             return
 
-        previous_label = self.sku_var.get().strip()
+        previous_label = self.selected_sku_label
         self.data = data
         self.catalog = catalog
         self.all_labels = self.catalog["LABEL"].tolist()
-        self.sku_combo["values"] = [""] + self.all_labels
+        self.sku_combo["values"] = self.all_labels
         self.source_var.set(str(source))
         self.source_name_var.set(source.name)
         self.network_view.set_workbook_info(workbook_info, source)
@@ -231,19 +231,15 @@ class OracleFusionSaaSNetworkViewerApp:
         )
         default = previous_label if previous_label in self.all_labels else next(
             (label for label in self.all_labels if label.startswith("B108674 |")),
-            "",
+            self.all_labels[0],
         )
         self.sku_var.set(default)
-        if default:
-            self.select_sku()
-        else:
-            self.clear_sku()
+        self.select_sku()
         self.status_var.set(f"Loaded {source.name}: {len(self.data):,} unique assignment rows")
 
     def _set_loading(self, loading: bool, status: str = "") -> None:
         state = "disabled" if loading else "normal"
         self.source_button.configure(state=state)
-        self.clear_sku_button.configure(state=state)
         self.sku_combo.configure(state="disabled" if loading else "normal")
         self.root.configure(cursor="wait" if loading else "")
         if loading:
@@ -272,35 +268,32 @@ class OracleFusionSaaSNetworkViewerApp:
         matches = self.all_labels if not query else [
             label for label in self.all_labels if query in label.casefold()
         ]
-        self.sku_combo["values"] = [""] + matches
+        self.sku_combo["values"] = matches
         if not query:
-            self.clear_sku()
+            self.status_var.set("Select a SKU")
         elif not matches:
-            self._show_pending_sku("No matching SKU or service")
             self.status_var.set(f"No SKU or service contains “{self.sku_var.get().strip()}”")
         else:
-            if self.sku_var.get().strip() not in self.all_labels:
-                self._show_pending_sku("Press Enter to select the first match")
             self.status_var.set(f"{len(matches):,} matching SKU{'s' if len(matches) != 1 else ''}; press Enter to select the first match")
 
-    def _show_pending_sku(self, message: str) -> None:
-        self.service_var.set(message)
-        self.user_count_var.set("—")
-        if not self.data.empty:
-            self.network_view.set_data(self.data.iloc[0:0].copy())
+    def _restore_selected_sku(self) -> None:
+        if self.selected_sku_label in self.all_labels:
+            self.sku_var.set(self.selected_sku_label)
+            self.sku_combo["values"] = self.all_labels
 
     def select_sku(self) -> None:
         if self.catalog.empty:
             return
         entered = self.sku_var.get().strip()
         if not entered:
-            self.clear_sku()
+            self._restore_selected_sku()
             return
         if entered not in self.all_labels:
             folded = entered.casefold()
             match = next((label for label in self.all_labels if folded in label.casefold()), None)
             if match is None:
                 self.status_var.set(f"No SKU or service contains “{entered}”")
+                self._restore_selected_sku()
                 return
             self.sku_var.set(match)
 
@@ -310,20 +303,13 @@ class OracleFusionSaaSNetworkViewerApp:
         sku = str(selected["SKU"].iloc[0])
         service = str(selected["SERVICE"].iloc[0])
         user_count = int(selected["USERS"].iloc[0])
+        self.selected_sku_label = self.sku_var.get()
+        self.sku_combo["values"] = self.all_labels
         self.service_var.set(service)
         self.user_count_var.set(f"{user_count:,}")
         selected_data = self.data[self.data["SKU"].eq(sku) & self.data["SERVICE"].eq(service)]
         self.network_view.set_data(selected_data)
         self.status_var.set(f"Network for {sku}")
-
-    def clear_sku(self) -> None:
-        self.sku_var.set("")
-        self.service_var.set("")
-        self.user_count_var.set("—")
-        if not self.data.empty:
-            self.network_view.set_data(self.data.iloc[0:0].copy())
-        self.status_var.set("No SKU selected")
-
 
 def main() -> None:
     root = tk.Tk()

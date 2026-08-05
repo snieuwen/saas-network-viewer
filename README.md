@@ -26,17 +26,17 @@ The source workbook is only read and is never modified.
 
 ## Select a workbook
 
-- Choose **Change workbook…** to select an `.xlsx` or `.xlsm` file.
+- Choose **Open workbook** to select an `.xlsx` or `.xlsm` file.
 - The workbook must contain a `Raw User Data` worksheet with these columns: `SKU`, `SERVICE`, `USER_LOGIN_HASH`, `PRIVILEGE`, and `ROLE_CODE`.
 - The optional `Info` worksheet supplies **Prepared for**, **Usage data collected**, and **DT data collected**.
 - Loading runs in the background. If a new workbook is invalid, the previous workbook and network remain active.
 - Use **Workbook details** to show or hide the full path and workbook metadata.
 
-## Select or clear a SKU
+## Select a SKU
 
 - Type any part of the SKU code or service name. Matching is case-insensitive.
 - Press **Enter** to select the first match, or open the list and select a result.
-- Choose the empty list entry, clear the text, or use **Clear SKU** to select no SKU.
+- After a workbook loads, the viewer always keeps a valid SKU selected. Empty or invalid input restores the current selection.
 - The service name and total distinct SKU users are shown next to the selection.
 
 ## Filter the network
