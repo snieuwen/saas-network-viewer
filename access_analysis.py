@@ -57,7 +57,7 @@ def build_network_data(
     *,
     max_roles: int = 30,
     max_privileges: int = 30,
-    max_relationships: int = 36,
+    max_relationships: int = 30,
     role_query: str = "",
     privilege_query: str = "",
     min_shared_users: int = 1,
@@ -147,6 +147,8 @@ def build_network_data(
         )
     ]
     for edge in candidates:
+        if len(selected_edges) >= maximum_relationships:
+            break
         role = str(edge.ROLE_CODE)
         privilege = str(edge.PRIVILEGE)
         if role not in roles or privilege not in privileges:
@@ -160,8 +162,6 @@ def build_network_data(
                 "WEIGHT": int(edge.WEIGHT),
             }
         )
-        if len(selected_edges) >= maximum_relationships:
-            break
 
     if not roles or not privileges:
         return _empty_network()

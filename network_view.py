@@ -17,7 +17,7 @@ KIND_COLOURS = {"role": "#F2B134", "privilege": "#63B995"}
 MINIMUM_NODE_LIMIT = 10
 DEFAULT_ROLE_LIMIT = 30
 DEFAULT_PRIVILEGE_LIMIT = 30
-DEFAULT_RELATIONSHIP_LIMIT = 36
+DEFAULT_RELATIONSHIP_LIMIT = 30
 DEFAULT_MINIMUM_SHARED = 1
 
 
@@ -501,6 +501,34 @@ class NetworkView(ttk.Frame):
             privileges.sort(key=lambda value: (privilege_score[value], value))
         return {"role": roles, "privilege": privileges}
 
+    def _node_radius(self, weight: int, *, scale: float | None = None) -> float:
+        display_scale = self.zoom_factor if scale is None else scale
+        return display_scale * (5 + 7.5 * math.sqrt(max(0, weight) / self.max_node_weight))
+
+    @staticmethod
+    def _packed_vertical_positions(
+        node_ids: list[str],
+        radii: dict[str, float],
+        *,
+        top: float,
+        minimum_center_gap: float,
+        clear_gap: float,
+    ) -> tuple[dict[str, float], float]:
+        if not node_ids:
+            return {}, top
+        first = node_ids[0]
+        current_y = top + radii[first]
+        positions = {first: current_y}
+        previous = first
+        for node_id in node_ids[1:]:
+            current_y += max(
+                minimum_center_gap,
+                radii[previous] + radii[node_id] + clear_gap,
+            )
+            positions[node_id] = current_y
+            previous = node_id
+        return positions, current_y + radii[previous]
+
     def draw(self) -> None:
         self.canvas.delete("all")
         self.node_items.clear()
@@ -523,22 +551,42 @@ class NetworkView(ttk.Frame):
             return
 
         ordered = self._ordered_ids(nodes, edges)
-        row_gap = max(22, int(28 * self.zoom_factor))
         content_width = max(viewport_width - 4, int(1280 * self.zoom_factor))
-        largest_column = max(len(ordered["role"]), len(ordered["privilege"]), 1)
-        content_height = max(viewport_height - 4, 58 + (largest_column - 1) * row_gap + 52)
+        radii = {
+            str(row.ID): self._node_radius(int(row.WEIGHT))
+            for row in nodes.itertuples(index=False)
+        }
+        vertical_positions: dict[str, dict[str, float]] = {}
+        column_bottoms: list[float] = []
+        for kind in ("role", "privilege"):
+            y_positions, bottom = self._packed_vertical_positions(
+                ordered[kind],
+                radii,
+                top=38,
+                minimum_center_gap=max(16, 17 * self.zoom_factor),
+                clear_gap=max(4, 5 * self.zoom_factor),
+            )
+            vertical_positions[kind] = y_positions
+            column_bottoms.append(bottom)
+        content_height = max(viewport_height - 4, max(column_bottoms, default=38) + 34)
         self.canvas.configure(scrollregion=(0, 0, content_width, content_height))
         columns = {"role": content_width * 0.34, "privilege": content_width * 0.67}
-        for kind, x in columns.items():
+        headings = {
+            "role": (14, "w"),
+            "privilege": (content_width - 14, "e"),
+        }
+        for kind, (heading_x, anchor) in headings.items():
             self.canvas.create_text(
-                x,
+                heading_x,
                 18,
                 text=KIND_LABELS[kind],
+                anchor=anchor,
                 fill="#38434F",
-                font=("Segoe UI", max(9, int(10 * self.zoom_factor)), "bold"),
+                font=("Segoe UI", max(11, int(13 * self.zoom_factor)), "bold"),
             )
-            for index, node_id in enumerate(ordered[kind]):
-                self.positions[node_id] = (x, 48 + index * row_gap)
+        for kind, x in columns.items():
+            for node_id in ordered[kind]:
+                self.positions[node_id] = (x, vertical_positions[kind][node_id])
 
         active = (
             {self.selected_node} | self.neighbours.get(self.selected_node, set())
@@ -566,7 +614,7 @@ class NetworkView(ttk.Frame):
             if node_id not in self.positions:
                 continue
             x, y = self.positions[node_id]
-            radius = self.zoom_factor * (6 + 9 * math.sqrt(int(row.WEIGHT) / self.max_node_weight))
+            radius = radii[node_id]
             muted = active is not None and node_id not in active
             fill = "#CED5DA" if muted else KIND_COLOURS[str(row.KIND)]
             if node_id == self.selected_node:
@@ -880,10 +928,24 @@ class NetworkView(ttk.Frame):
         nodes, edges = self._display_data()
         ordered = self._ordered_ids(nodes, edges)
         width = 2200
-        row_gap = 36
         graph_top = 220
-        largest = max(len(ordered["role"]), len(ordered["privilege"]), 1)
-        height = max(760, graph_top + largest * row_gap + 80)
+        radii = {
+            str(row.ID): self._node_radius(int(row.WEIGHT), scale=1.36)
+            for row in nodes.itertuples(index=False)
+        }
+        packed_positions: dict[str, dict[str, float]] = {}
+        packed_bottoms: list[float] = []
+        for kind in ("role", "privilege"):
+            y_positions, bottom = self._packed_vertical_positions(
+                ordered[kind],
+                radii,
+                top=graph_top,
+                minimum_center_gap=28,
+                clear_gap=7,
+            )
+            packed_positions[kind] = y_positions
+            packed_bottoms.append(bottom)
+        height = max(760, int(max(packed_bottoms, default=graph_top) + 80))
         image = Image.new("RGB", (width, height), "white")
         draw = ImageDraw.Draw(image)
 
@@ -924,11 +986,20 @@ class NetworkView(ttk.Frame):
 
         positions: dict[str, tuple[float, float]] = {}
         columns = {"role": width * 0.34, "privilege": width * 0.66}
+        heading_font = font(20, bold=True)
+        draw.text((50, graph_top - 34), KIND_LABELS["role"], fill="#263238", font=heading_font)
+        privilege_bounds = draw.textbbox((0, 0), KIND_LABELS["privilege"], font=heading_font)
+        privilege_width = privilege_bounds[2] - privilege_bounds[0]
+        draw.text(
+            (width - 50 - privilege_width, graph_top - 34),
+            KIND_LABELS["privilege"],
+            fill="#263238",
+            font=heading_font,
+        )
         for kind in ("role", "privilege"):
             x = columns[kind]
-            draw.text((x - 45, graph_top - 30), KIND_LABELS[kind], fill="#263238", font=font(16, bold=True))
-            for index, node_id in enumerate(ordered[kind]):
-                positions[node_id] = (x, graph_top + index * row_gap)
+            for node_id in ordered[kind]:
+                positions[node_id] = (x, packed_positions[kind][node_id])
         for edge in edges.itertuples(index=False):
             source, target = str(edge.SOURCE), str(edge.TARGET)
             if source not in positions or target not in positions:
@@ -940,7 +1011,7 @@ class NetworkView(ttk.Frame):
             if node_id not in positions:
                 continue
             x, y = positions[node_id]
-            radius = 8 + 12 * math.sqrt(int(row.WEIGHT) / self.max_node_weight)
+            radius = radii[node_id]
             box = (x - radius, y - radius, x + radius, y + radius)
             if row.KIND == "role":
                 draw.ellipse(box, fill=KIND_COLOURS["role"], outline="#174A7E" if node_id == self.selected_node else "white", width=3)

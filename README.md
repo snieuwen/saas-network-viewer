@@ -30,7 +30,7 @@ The source workbook is only read and is never modified.
 - The workbook must contain a `Raw User Data` worksheet with these columns: `SKU`, `SERVICE`, `USER_LOGIN_HASH`, `PRIVILEGE`, and `ROLE_CODE`.
 - The optional `Info` worksheet supplies **Prepared for**, **Usage data collected**, and **DT data collected**.
 - Loading runs in the background. If a new workbook is invalid, the previous workbook and network remain active.
-- Use **Workbook details** to show or hide the full path and workbook metadata.
+- The selected filename and **Prepared for** value appear together above the SKU selector; collection dates appear on the right of the same row.
 
 ## Select a SKU
 
@@ -42,16 +42,17 @@ The source workbook is only read and is never modified.
 ## Filter the network
 
 - **Search roles** and **Search privileges** match names case-insensitively.
-- **Maximum roles**, **Maximum privileges**, and **Maximum relationships** keep the graph readable. Role and privilege limits default to 30 and accept values from 10 through 100. Search results always respect these limits.
+- **Maximum roles**, **Maximum privileges**, and **Maximum relationships** keep the graph readable. All three limits default to 30; role and privilege limits accept values from 10 through 100. Search results always respect these limits.
 - **Minimum shared users** removes relationships below the chosen threshold.
 - Choose **Apply filters**, press Enter in a numeric field, or use a spinbox arrow to apply numeric changes.
-- Choose **Reset filters** to return to the default of 30 roles and 30 privileges.
+- Choose **Reset filters** to return to the default of 30 roles, 30 privileges, and 30 relationships.
 - The filter summary shows the number displayed alongside the total number available before the limits are applied.
 - The graph selects a connected set of the strongest relationships while maximising useful role and privilege coverage.
 
 ## Explore the network
 
 - Circles represent roles; squares represent privileges.
+- Roles and privileges are packed independently: larger nodes receive more vertical space, while smaller nodes use less.
 - Node size represents total distinct users for that role or privilege in the complete SKU.
 - Line width represents distinct users shared by that role and privilege in the complete SKU.
 - A star marks the most connected nodes in the currently visible network.

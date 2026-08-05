@@ -34,17 +34,15 @@ class OracleFusionSaaSNetworkViewerApp:
         self.all_labels: list[str] = []
         self.loading_token = 0
         self.load_results: queue.Queue[tuple[object, ...]] = queue.Queue()
-        self.details_visible = False
         self.source_var = tk.StringVar()
         self.source_name_var = tk.StringVar()
         self.sku_var = tk.StringVar()
         self.selected_sku_label = ""
         self.service_var = tk.StringVar()
         self.user_count_var = tk.StringVar(value="—")
-        self.prepared_for_var = tk.StringVar(value="Prepared for: —")
-        self.dates_var = tk.StringVar(value="Usage data collected: —    |    DT data collected: —")
+        self.prepared_for_var = tk.StringVar()
+        self.dates_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Choose a workbook to begin")
-        self.workbook_toggle_var = tk.StringVar(value="Workbook details ▸")
 
         self._configure_style()
         self._build_ui()
@@ -76,25 +74,12 @@ class OracleFusionSaaSNetworkViewerApp:
 
         source_row = ttk.Frame(outer)
         source_row.pack(fill="x", pady=(4, 0))
-        ttk.Button(
-            source_row,
-            textvariable=self.workbook_toggle_var,
-            command=self.toggle_workbook_details,
-        ).pack(side="left")
-        ttk.Label(source_row, textvariable=self.source_name_var).pack(side="left", padx=(8, 0))
-
-        self.workbook_details = ttk.Frame(outer, padding=(8, 5))
-        self.workbook_details.columnconfigure(0, weight=1)
-        ttk.Label(self.workbook_details, text="Source workbook", style="InfoLabel.TLabel").grid(
-            row=0, column=0, sticky="w"
+        ttk.Label(source_row, text="Workbook", style="InfoLabel.TLabel").pack(side="left")
+        ttk.Label(source_row, textvariable=self.source_name_var, style="InfoValue.TLabel").pack(
+            side="left", padx=(8, 0)
         )
-        ttk.Entry(self.workbook_details, textvariable=self.source_var, state="readonly").grid(
-            row=1, column=0, sticky="ew"
-        )
-        metadata = ttk.Frame(self.workbook_details)
-        metadata.grid(row=2, column=0, sticky="ew", pady=(5, 0))
-        ttk.Label(metadata, textvariable=self.prepared_for_var, style="InfoValue.TLabel").pack(side="left")
-        ttk.Label(metadata, textvariable=self.dates_var).pack(side="right")
+        ttk.Label(source_row, textvariable=self.prepared_for_var).pack(side="left", padx=(16, 0))
+        ttk.Label(source_row, textvariable=self.dates_var).pack(side="right")
 
         selector = ttk.LabelFrame(outer, text="SKU selection", padding=(8, 6))
         selector.pack(fill="x", pady=(6, 6))
@@ -129,15 +114,6 @@ class OracleFusionSaaSNetworkViewerApp:
         self.network_view = NetworkView(outer)
         self.network_view.pack(fill="both", expand=True)
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="e", pady=(4, 0))
-
-    def toggle_workbook_details(self) -> None:
-        if self.details_visible:
-            self.workbook_details.pack_forget()
-            self.workbook_toggle_var.set("Workbook details ▸")
-        else:
-            self.workbook_details.pack(fill="x", pady=(2, 3), before=self.network_view.master.winfo_children()[3])
-            self.workbook_toggle_var.set("Workbook details ▾")
-        self.details_visible = not self.details_visible
 
     def browse_source(self) -> None:
         current_value = self.source_var.get().strip()
