@@ -18,7 +18,7 @@ This is an independent personal project by Sandor Nieuwenhuijs. It is not an Ora
 ## Start
 
 1. Download the real Windows executable using [Download SaaS Network Viewer](https://github.com/snieuwen/saas-network-viewer/raw/refs/heads/main/saas-network-viewer.exe). The complete file is approximately 43 MB; a file of roughly 151 KB is the GitHub web page, not the application.
-2. Start `saas-network-viewer.exe`, or double-click `start_app.bat` when running from the complete source folder.
+2. Double-click `start_app.bat` in the complete source folder to run the latest source version. The launcher uses an available Python runtime and falls back to `saas-network-viewer.exe` only when Python is unavailable. You can also start the packaged EXE directly.
 3. Choose a workbook in the application. No workbook, SKU, or service is selected at startup.
 4. If Windows SmartScreen warns about the unsigned application, verify that it came from this repository before choosing **More info** and **Run anyway**.
 
