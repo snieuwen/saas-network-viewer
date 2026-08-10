@@ -42,6 +42,9 @@ The source workbook is only read and is never modified.
 ## Filter the network
 
 - **Search roles** and **Search privileges** match names case-insensitively.
+- **Role groups** provides independent checkboxes for **Oracle predefined**, **Application Implementation**, and **Read-only** roles. Oracle predefined roles are identified by an `ORA_` role-code prefix. Application Implementation roles are identified by `APPLICATION_IMPLEMENTATION` in the role code and form a separate group even when their code also starts with `ORA_`.
+- **Read-only role word** classifies role codes case-insensitively without acting as a normal search. Matching roles receive the blue read-only colour, while non-matching roles remain visible. Clear the **Read-only** checkbox to exclude only the matching roles. A read-only match has priority over the other role groups.
+- **Abstract roles** is an independent filter because an abstract role can also be Oracle predefined, custom, or read-only. Abstract roles are identified by the `_ABSTRACT` role-code suffix. Clear the checkbox to exclude them.
 - **Maximum roles**, **Maximum privileges**, and **Relationships for node selection** determine the initial node set. All three default to 30; the role and privilege spinboxes use the actual number available for the selected SKU as their upper bound. Once the initial nodes are selected, every matching relationship between those nodes is drawn without adding further nodes. Search results always respect these settings.
 - **Minimum role/privilege users** excludes roles and privileges used by fewer than the specified number of total SKU users. It defaults to 1.
 - **Minimum shared users** removes relationships below the chosen threshold.
@@ -53,6 +56,8 @@ The source workbook is only read and is never modified.
 ## Explore the network
 
 - Circles represent roles; squares represent privileges.
+- Role colours distinguish ordinary roles, Oracle predefined roles, Application Implementation roles, and roles matching the configured read-only word. These display classifications are included in PNG and Excel exports. They describe role provenance or naming only and do not determine effective access or licensing impact.
+- A small **A** badge identifies abstract roles without replacing their existing group colour. Role tooltips show the inferred role type and display group. The badge and role type are also included in exports.
 - Roles and privileges are packed independently: larger nodes receive more vertical space, while smaller nodes use less.
 - The initial vertical order starts from total SKU users (then name) and applies two weighted topology passes to reduce line crossings. When a selection reveals hidden connections, the revealed nodes are inserted using the same topology ordering while nodes that were already visible retain their relative order. Changing the filters creates a new initial order.
 - Roles and privileges revealed by a selection use lighter variants of their normal colours. The legend places **Revealed roles** beside **Roles** and **Revealed privileges** beside **Privileges**; the Excel export identifies them as **Revealed by selection**.
@@ -71,6 +76,10 @@ The source workbook is only read and is never modified.
 - **Fit width** restores a useful horizontal scale.
 
 Individual users are deliberately not displayed as nodes. This keeps large SKU networks readable while retaining distinct-user counts in node and relationship weights.
+
+## User guide
+
+The illustrated English user guide is available in both [Word](docs/Oracle-Fusion-SaaS-Network-Viewer-User-Guide.docx) and [PDF](docs/Oracle-Fusion-SaaS-Network-Viewer-User-Guide.pdf) format. It covers installation, workbook requirements, filters, network interpretation, two-way role/privilege exploration, details, exports, recommended workflows, and troubleshooting.
 
 ## Export
 

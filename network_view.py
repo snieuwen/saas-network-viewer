@@ -15,12 +15,67 @@ from access_analysis import build_network_data
 KIND_LABELS = {"role": "Roles", "privilege": "Privileges"}
 KIND_COLOURS = {"role": "#F2B134", "privilege": "#63B995"}
 ADDED_KIND_COLOURS = {"role": "#F8D889", "privilege": "#A6DDC8"}
+ROLE_GROUP_STANDARD = "standard"
+ROLE_GROUP_SEEDED = "oracle_predefined"
+ROLE_GROUP_IMPLEMENTATION = "application_implementation"
+ROLE_GROUP_READ_ONLY = "read_only"
+ROLE_GROUP_LABELS = {
+    ROLE_GROUP_STANDARD: "Other roles",
+    ROLE_GROUP_SEEDED: "Oracle predefined",
+    ROLE_GROUP_IMPLEMENTATION: "Application Implementation",
+    ROLE_GROUP_READ_ONLY: "Read-only",
+}
+ROLE_GROUP_COLOURS = {
+    ROLE_GROUP_STANDARD: KIND_COLOURS["role"],
+    ROLE_GROUP_SEEDED: "#C44E52",
+    ROLE_GROUP_IMPLEMENTATION: "#8B6FB1",
+    ROLE_GROUP_READ_ONLY: "#4C9ED9",
+}
+REVEALED_ROLE_GROUP_COLOURS = {
+    ROLE_GROUP_STANDARD: ADDED_KIND_COLOURS["role"],
+    ROLE_GROUP_SEEDED: "#E4A0A2",
+    ROLE_GROUP_IMPLEMENTATION: "#C5B4D9",
+    ROLE_GROUP_READ_ONLY: "#9CC9E8",
+}
+ABSTRACT_BADGE_COLOUR = "#2F6B62"
 MINIMUM_NODE_LIMIT = 10
 DEFAULT_ROLE_LIMIT = 30
 DEFAULT_PRIVILEGE_LIMIT = 30
 DEFAULT_RELATIONSHIP_LIMIT = 30
 DEFAULT_MINIMUM_SHARED = 1
 DEFAULT_MINIMUM_NODE_USERS = 1
+
+
+def classify_role(role_code: object, read_only_word: str = "") -> str:
+    """Return the mutually exclusive display group for a role code."""
+    code = str(role_code).strip()
+    marker = str(read_only_word).strip()
+    if marker and marker.casefold() in code.casefold():
+        return ROLE_GROUP_READ_ONLY
+    upper_code = code.upper()
+    if "APPLICATION_IMPLEMENTATION" in upper_code:
+        return ROLE_GROUP_IMPLEMENTATION
+    if upper_code.startswith("ORA_"):
+        return ROLE_GROUP_SEEDED
+    return ROLE_GROUP_STANDARD
+
+
+def is_abstract_role(role_code: object) -> bool:
+    """Identify abstract roles from the standard Oracle role-code suffix."""
+    return str(role_code).strip().upper().endswith("_ABSTRACT")
+
+
+def role_type_label(role_code: object) -> str:
+    code = str(role_code).strip().upper()
+    if code.endswith("_ABSTRACT"):
+        return "Abstract role"
+    if code.endswith("_JOB"):
+        return "Job role"
+    if code.endswith("_DUTY"):
+        return "Duty role"
+    if code.endswith("_DATA"):
+        return "Data role"
+    return "Other role"
 
 
 class NetworkView(ttk.Frame):
@@ -58,6 +113,11 @@ class NetworkView(ttk.Frame):
         self.relationships_var = tk.StringVar(value=str(DEFAULT_RELATIONSHIP_LIMIT))
         self.role_search_var = tk.StringVar()
         self.privilege_search_var = tk.StringVar()
+        self.read_only_word_var = tk.StringVar()
+        self.show_seeded_roles_var = tk.BooleanVar(value=True)
+        self.show_implementation_roles_var = tk.BooleanVar(value=True)
+        self.show_read_only_roles_var = tk.BooleanVar(value=True)
+        self.show_abstract_roles_var = tk.BooleanVar(value=True)
         self.role_total_var = tk.StringVar(value="0 visible")
         self.privilege_total_var = tk.StringVar(value="0 visible")
         self.network_summary_var = tk.StringVar(value="No network loaded")
@@ -156,25 +216,56 @@ class NetworkView(ttk.Frame):
             text="Show only selected node's connections",
             variable=self.focus_mode_var,
             command=self._selection_options_changed,
-        ).grid(row=2, column=4, columnspan=2, sticky="w", pady=(2, 0))
+        ).grid(row=3, column=4, columnspan=2, sticky="w", pady=(2, 0))
         ttk.Checkbutton(
             filters,
             text="Show all connections for selected node",
             variable=self.expand_selected_var,
             command=self._selection_options_changed,
-        ).grid(row=2, column=6, columnspan=2, sticky="e", pady=(2, 0))
+        ).grid(row=3, column=6, columnspan=2, sticky="e", pady=(2, 0))
         ttk.Label(filters, textvariable=self.network_summary_var).grid(
-            row=3, column=4, columnspan=4, sticky="e", padx=(10, 0), pady=(2, 0)
+            row=4, column=4, columnspan=4, sticky="e", padx=(10, 0), pady=(2, 0)
         )
         ttk.Label(filters, textvariable=self.filter_error_var, style="Error.TLabel").grid(
-            row=3, column=0, columnspan=4, sticky="w", pady=(2, 0)
+            row=4, column=0, columnspan=4, sticky="w", pady=(2, 0)
         )
         ttk.Label(filters, textvariable=self.role_total_var).grid(
-            row=2, column=0, columnspan=2, sticky="w", pady=(2, 0)
+            row=3, column=0, columnspan=2, sticky="w", pady=(2, 0)
         )
         ttk.Label(filters, textvariable=self.privilege_total_var).grid(
-            row=2, column=2, columnspan=2, sticky="w", pady=(2, 0)
+            row=3, column=2, columnspan=2, sticky="w", pady=(2, 0)
         )
+
+        ttk.Label(filters, text="Role groups").grid(row=2, column=0, sticky="w", pady=(3, 0))
+        role_groups = ttk.Frame(filters)
+        role_groups.grid(row=2, column=1, columnspan=7, sticky="w", padx=(5, 0), pady=(3, 0))
+        for text, variable, colour in (
+            ("Oracle predefined", self.show_seeded_roles_var, ROLE_GROUP_COLOURS[ROLE_GROUP_SEEDED]),
+            ("Application Implementation", self.show_implementation_roles_var, ROLE_GROUP_COLOURS[ROLE_GROUP_IMPLEMENTATION]),
+            ("Read-only", self.show_read_only_roles_var, ROLE_GROUP_COLOURS[ROLE_GROUP_READ_ONLY]),
+        ):
+            swatch = tk.Canvas(role_groups, width=14, height=14, highlightthickness=0)
+            swatch.create_oval(2, 2, 12, 12, fill=colour, outline="")
+            swatch.pack(side="left", padx=(0, 2))
+            ttk.Checkbutton(
+                role_groups,
+                text=text,
+                variable=variable,
+                command=self.refresh,
+            ).pack(side="left", padx=(0, 10))
+        ttk.Label(role_groups, text="Word").pack(side="left", padx=(0, 4))
+        read_only_word = ttk.Entry(role_groups, textvariable=self.read_only_word_var, width=14)
+        read_only_word.pack(side="left", padx=(0, 10))
+        abstract_badge = tk.Canvas(role_groups, width=16, height=16, highlightthickness=0)
+        abstract_badge.create_oval(2, 2, 14, 14, fill="white", outline=ABSTRACT_BADGE_COLOUR, width=2)
+        abstract_badge.create_text(8, 8, text="A", fill=ABSTRACT_BADGE_COLOUR, font=("Segoe UI", 7, "bold"))
+        abstract_badge.pack(side="left", padx=(0, 2))
+        ttk.Checkbutton(
+            role_groups,
+            text="Abstract roles",
+            variable=self.show_abstract_roles_var,
+            command=self.refresh,
+        ).pack(side="left")
 
         for widget in (role_search, privilege_search):
             widget.bind("<Escape>", lambda _event: self.reset_filters())
@@ -189,6 +280,7 @@ class NetworkView(ttk.Frame):
             widget.bind("<FocusOut>", lambda _event: self.refresh())
         self.role_search_var.trace_add("write", lambda *_: self.schedule_refresh())
         self.privilege_search_var.trace_add("write", lambda *_: self.schedule_refresh())
+        self.read_only_word_var.trace_add("write", lambda *_: self.schedule_refresh())
 
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(0, 3))
@@ -200,6 +292,15 @@ class NetworkView(ttk.Frame):
         added_role_swatch.create_oval(2, 2, 12, 12, fill=ADDED_KIND_COLOURS["role"], outline="")
         added_role_swatch.pack(side="left", padx=(14, 3))
         ttk.Label(actions, text="Revealed roles").pack(side="left")
+        abstract_legend = tk.Canvas(actions, width=16, height=16, highlightthickness=0)
+        abstract_legend.create_oval(
+            2, 2, 14, 14, fill="white", outline=ABSTRACT_BADGE_COLOUR, width=2
+        )
+        abstract_legend.create_text(
+            8, 8, text="A", fill=ABSTRACT_BADGE_COLOUR, font=("Segoe UI", 7, "bold")
+        )
+        abstract_legend.pack(side="left", padx=(14, 3))
+        ttk.Label(actions, text="Abstract role").pack(side="left")
         privilege_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
         privilege_swatch.create_rectangle(2, 2, 12, 12, fill=KIND_COLOURS["privilege"], outline="")
         privilege_swatch.pack(side="left", padx=(14, 3))
@@ -361,6 +462,48 @@ class NetworkView(ttk.Frame):
         self.max_edge_weight = max(1, int(edge_weights.max()) if not edge_weights.empty else 1)
         self.refresh()
 
+    def _role_group(self, role_code: object) -> str:
+        return classify_role(role_code, self.read_only_word_var.get())
+
+    def _role_group_is_visible(self, group: str) -> bool:
+        return {
+            ROLE_GROUP_SEEDED: bool(self.show_seeded_roles_var.get()),
+            ROLE_GROUP_IMPLEMENTATION: bool(self.show_implementation_roles_var.get()),
+            ROLE_GROUP_READ_ONLY: bool(self.show_read_only_roles_var.get()),
+        }.get(group, True)
+
+    def _group_filtered_frame(self) -> pd.DataFrame:
+        if self.frame.empty:
+            return self.frame
+        groups = self.frame["ROLE_CODE"].map(self._role_group)
+        visible = groups.map(self._role_group_is_visible)
+        if not self.show_abstract_roles_var.get():
+            visible &= ~self.frame["ROLE_CODE"].map(is_abstract_role)
+        return self.frame[visible]
+
+    def _node_fill(self, kind: str, label: str, *, revealed: bool = False) -> str:
+        if kind == "role":
+            palette = REVEALED_ROLE_GROUP_COLOURS if revealed else ROLE_GROUP_COLOURS
+            return palette[self._role_group(label)]
+        return ADDED_KIND_COLOURS["privilege"] if revealed else KIND_COLOURS["privilege"]
+
+    def _apply_full_sku_node_weights(self, nodes: pd.DataFrame) -> pd.DataFrame:
+        """Keep node sizes based on the complete SKU, independent of display filters."""
+        if nodes.empty:
+            return nodes
+        role_weights = self.frame.groupby("ROLE_CODE")["USER_LOGIN_HASH"].nunique().to_dict()
+        privilege_weights = self.frame.groupby("PRIVILEGE")["USER_LOGIN_HASH"].nunique().to_dict()
+        result = nodes.copy()
+        result["WEIGHT"] = result.apply(
+            lambda row: int(
+                (role_weights if row["KIND"] == "role" else privilege_weights).get(
+                    row["LABEL"], row["WEIGHT"]
+                )
+            ),
+            axis=1,
+        )
+        return result
+
     def set_workbook_info(self, info: dict[str, object], source: str | Path) -> None:
         self.workbook_info = dict(info)
         self.source_path = Path(source)
@@ -428,17 +571,15 @@ class NetworkView(ttk.Frame):
         if values is None:
             return
         max_roles, max_privileges, max_relationships, minimum_shared, minimum_node_users = values
+        filtered = self._filtered_assignments()
         self.nodes, self.edges = build_network_data(
-            self.frame,
+            filtered,
             max_roles=max_roles,
             max_privileges=max_privileges,
             max_relationships=max_relationships,
-            role_query=self.role_search_var.get(),
-            privilege_query=self.privilege_search_var.get(),
             min_shared_users=minimum_shared,
-            min_node_users=minimum_node_users,
         )
-        filtered = self._filtered_assignments()
+        self.nodes = self._apply_full_sku_node_weights(self.nodes)
         match_roles = filtered["ROLE_CODE"].nunique()
         match_privileges = filtered["PRIVILEGE"].nunique()
         visible_roles = int(self.nodes["KIND"].eq("role").sum()) if not self.nodes.empty else 0
@@ -506,13 +647,19 @@ class NetworkView(ttk.Frame):
         self.relationships_var.set(str(DEFAULT_RELATIONSHIP_LIMIT))
         self.role_search_var.set("")
         self.privilege_search_var.set("")
+        self.read_only_word_var.set("")
+        self.show_seeded_roles_var.set(True)
+        self.show_implementation_roles_var.set(True)
+        self.show_read_only_roles_var.set(True)
+        self.show_abstract_roles_var.set(True)
         if self.search_job is not None:
             self.after_cancel(self.search_job)
             self.search_job = None
         self.refresh()
 
     def _filtered_assignments(self) -> pd.DataFrame:
-        filtered = self.frame
+        base = self._group_filtered_frame()
+        filtered = base
         role_query = self.role_search_var.get().strip()
         privilege_query = self.privilege_search_var.get().strip()
         if role_query:
@@ -529,7 +676,7 @@ class NetworkView(ttk.Frame):
             minimum_node_users = max(1, int(self.min_node_users_var.get()))
         except (TypeError, ValueError, tk.TclError):
             minimum_node_users = DEFAULT_MINIMUM_NODE_USERS
-        if minimum_node_users > 1 and not self.frame.empty:
+        if minimum_node_users > 1 and not base.empty:
             eligible_roles = set(
                 self.frame.groupby("ROLE_CODE")["USER_LOGIN_HASH"]
                 .nunique()
@@ -920,10 +1067,10 @@ class NetworkView(ttk.Frame):
             fill = (
                 "#CED5DA"
                 if muted
-                else (
-                    ADDED_KIND_COLOURS[str(row.KIND)]
-                    if node_id in temporary_node_ids
-                    else KIND_COLOURS[str(row.KIND)]
+                else self._node_fill(
+                    str(row.KIND),
+                    str(row.LABEL),
+                    revealed=node_id in temporary_node_ids,
                 )
             )
             if node_id == self.selected_node:
@@ -952,8 +1099,35 @@ class NetworkView(ttk.Frame):
                 )
             self.node_items[item] = node_id
             anchor = "e" if str(row.KIND) == "role" else "w"
-            label_x = x - radius - 6 if anchor == "e" else x + radius + 6
             label = str(row.LABEL)
+            abstract = str(row.KIND) == "role" and is_abstract_role(label)
+            label_x = (
+                x - radius - 6 - (16 * self.zoom_factor if abstract else 0)
+                if anchor == "e"
+                else x + radius + 6
+            )
+            if abstract:
+                badge_radius = max(4, 5 * self.zoom_factor)
+                badge_x = x - radius - 9 * self.zoom_factor
+                badge_colour = "#8B969C" if muted else ABSTRACT_BADGE_COLOUR
+                badge = self.canvas.create_oval(
+                    badge_x - badge_radius,
+                    y - badge_radius,
+                    badge_x + badge_radius,
+                    y + badge_radius,
+                    fill="#FFFFFF",
+                    outline=badge_colour,
+                    width=max(1, int(2 * self.zoom_factor)),
+                )
+                badge_text = self.canvas.create_text(
+                    badge_x,
+                    y,
+                    text="A",
+                    fill=badge_colour,
+                    font=("Segoe UI", max(6, int(7 * self.zoom_factor)), "bold"),
+                )
+                self.node_items[badge] = node_id
+                self.node_items[badge_text] = node_id
             short = label if len(label) <= 64 else label[:61] + "…"
             if node_id in self.key_nodes:
                 short = "★ " + short
@@ -992,9 +1166,16 @@ class NetworkView(ttk.Frame):
             row = match.iloc[0]
             kind = "Role" if row["KIND"] == "role" else "Privilege"
             key_text = "\nMost connected visible node" if node_id in self.key_nodes else ""
+            classification_text = ""
+            if row["KIND"] == "role":
+                classification_text = (
+                    f"\nRole type: {role_type_label(row['LABEL'])}"
+                    f"\nRole group: {ROLE_GROUP_LABELS[self._role_group(row['LABEL'])]}"
+                )
             self._show_tooltip(
                 event,
-                f"{kind}: {row['LABEL']}\nTotal SKU users: {int(row['WEIGHT']):,}{key_text}",
+                f"{kind}: {row['LABEL']}{classification_text}"
+                f"\nTotal SKU users: {int(row['WEIGHT']):,}{key_text}",
                 marker,
             )
             return
@@ -1107,9 +1288,10 @@ class NetworkView(ttk.Frame):
     def _connection_details(self, node_id: str, *, visible_only: bool) -> pd.DataFrame:
         if self.frame.empty:
             return pd.DataFrame(columns=("TYPE", "NAME", "USERS", "SHARED_USERS"))
+        group_filtered = self._group_filtered_frame()
         kind, label = node_id.split(":", 1)
         if kind == "role":
-            selected = self.frame[self.frame["ROLE_CODE"].eq(label)]
+            selected = group_filtered[group_filtered["ROLE_CODE"].eq(label)]
             shared = selected.groupby("PRIVILEGE", as_index=False).agg(
                 SHARED_USERS=("USER_LOGIN_HASH", "nunique")
             )
@@ -1121,7 +1303,7 @@ class NetworkView(ttk.Frame):
             )
             details.insert(0, "TYPE", "Privilege")
         else:
-            selected = self.frame[self.frame["PRIVILEGE"].eq(label)]
+            selected = group_filtered[group_filtered["PRIVILEGE"].eq(label)]
             shared = selected.groupby("ROLE_CODE", as_index=False).agg(
                 SHARED_USERS=("USER_LOGIN_HASH", "nunique")
             )
@@ -1279,7 +1461,7 @@ class NetworkView(ttk.Frame):
         nodes, edges = self._display_data()
         ordered = self._ordered_ids(nodes, edges)
         width = 2200
-        graph_top = 220
+        graph_top = 250
         radii = {
             str(row.ID): self._node_radius(int(row.WEIGHT), scale=1.36)
             for row in nodes.itertuples(index=False)
@@ -1329,22 +1511,51 @@ class NetworkView(ttk.Frame):
             f"Minimum shared users: {self.min_shared_var.get()}"
         )
         draw.text((50, 118), filters, fill="#455A64", font=font(15))
+        role_groups = (
+            f"Role groups: Oracle predefined {'on' if self.show_seeded_roles_var.get() else 'off'}  |  "
+            f"Application Implementation {'on' if self.show_implementation_roles_var.get() else 'off'}  |  "
+            f"Read-only {'on' if self.show_read_only_roles_var.get() else 'off'}  |  "
+            f"Read-only word: {self.read_only_word_var.get().strip() or 'None'}  |  "
+            f"Abstract roles {'on' if self.show_abstract_roles_var.get() else 'off'}"
+        )
+        draw.text((50, 148), role_groups, fill="#455A64", font=font(15))
         draw.text(
-            (50, 148),
+            (50, 176),
             f"{self.network_summary_var.get()}  |  Exported {datetime.now():%d %b %Y %H:%M}",
             fill="#455A64",
             font=font(15),
         )
-        draw.ellipse((50, 182, 66, 198), fill=KIND_COLOURS["role"])
-        draw.text((74, 179), "Roles", fill="#263238", font=font(14))
-        draw.ellipse((150, 182, 166, 198), fill=ADDED_KIND_COLOURS["role"])
-        draw.text((174, 179), "Revealed roles", fill="#263238", font=font(14))
-        draw.rectangle((330, 182, 346, 198), fill=KIND_COLOURS["privilege"])
-        draw.text((354, 179), "Privileges", fill="#263238", font=font(14))
-        draw.rectangle((450, 182, 466, 198), fill=ADDED_KIND_COLOURS["privilege"])
-        draw.text((474, 179), "Revealed privileges", fill="#263238", font=font(14))
-        draw.text((680, 179), "★ Most connected visible nodes", fill="#263238", font=font(14))
-        draw.text((980, 179), "Node size = total SKU users; line width = shared SKU users", fill="#263238", font=font(14))
+        legend_y = 210
+        legend_items = (
+            (50, ROLE_GROUP_COLOURS[ROLE_GROUP_STANDARD], "Roles"),
+            (150, ROLE_GROUP_COLOURS[ROLE_GROUP_SEEDED], "Oracle predefined"),
+            (355, ROLE_GROUP_COLOURS[ROLE_GROUP_IMPLEMENTATION], "Application Implementation"),
+            (650, ROLE_GROUP_COLOURS[ROLE_GROUP_READ_ONLY], "Read-only"),
+            (920, ADDED_KIND_COLOURS["role"], "Revealed roles (lighter)"),
+        )
+        for x, colour, label in legend_items:
+            draw.ellipse((x, legend_y, x + 16, legend_y + 16), fill=colour)
+            draw.text((x + 24, legend_y - 3), label, fill="#263238", font=font(14))
+        draw.ellipse(
+            (790, legend_y, 806, legend_y + 16),
+            fill="white",
+            outline=ABSTRACT_BADGE_COLOUR,
+            width=2,
+        )
+        a_bounds = draw.textbbox((0, 0), "A", font=font(10, bold=True))
+        draw.text(
+            (798 - (a_bounds[2] - a_bounds[0]) / 2, legend_y),
+            "A",
+            fill=ABSTRACT_BADGE_COLOUR,
+            font=font(10, bold=True),
+        )
+        draw.text((814, legend_y - 3), "Abstract role", fill="#263238", font=font(14))
+        draw.rectangle((1190, legend_y, 1206, legend_y + 16), fill=KIND_COLOURS["privilege"])
+        draw.text((1214, legend_y - 3), "Privileges", fill="#263238", font=font(14))
+        draw.rectangle((1315, legend_y, 1331, legend_y + 16), fill=ADDED_KIND_COLOURS["privilege"])
+        draw.text((1339, legend_y - 3), "Revealed privileges", fill="#263238", font=font(14))
+        draw.text((1545, legend_y - 3), "★ Most connected visible nodes", fill="#263238", font=font(14))
+        draw.text((1850, legend_y - 3), "Node size = users; line width = shared users", fill="#263238", font=font(14))
 
         positions: dict[str, tuple[float, float]] = {}
         columns = {"role": width * 0.34, "privilege": width * 0.66}
@@ -1403,16 +1614,36 @@ class NetworkView(ttk.Frame):
             x, y = positions[node_id]
             radius = radii[node_id]
             box = (x - radius, y - radius, x + radius, y + radius)
-            fill = (
-                ADDED_KIND_COLOURS[str(row.KIND)]
-                if node_id in temporary_node_ids
-                else KIND_COLOURS[str(row.KIND)]
+            fill = self._node_fill(
+                str(row.KIND),
+                str(row.LABEL),
+                revealed=node_id in temporary_node_ids,
             )
             if row.KIND == "role":
                 draw.ellipse(box, fill=fill, outline="#174A7E" if node_id == self.selected_node else "white", width=3)
                 label = ("★ " if node_id in self.key_nodes else "") + str(row.LABEL)
                 bounds = draw.textbbox((0, 0), label, font=font(14))
-                draw.text((x - radius - 10 - (bounds[2] - bounds[0]), y - 9), label, fill="#263238", font=font(14))
+                abstract = is_abstract_role(row.LABEL)
+                label_right = x - radius - (32 if abstract else 10)
+                draw.text((label_right - (bounds[2] - bounds[0]), y - 9), label, fill="#263238", font=font(14))
+                if abstract:
+                    badge_x = x - radius - 15
+                    draw.ellipse(
+                        (badge_x - 7, y - 7, badge_x + 7, y + 7),
+                        fill="white",
+                        outline=ABSTRACT_BADGE_COLOUR,
+                        width=2,
+                    )
+                    badge_bounds = draw.textbbox((0, 0), "A", font=font(9, bold=True))
+                    draw.text(
+                        (
+                            badge_x - (badge_bounds[2] - badge_bounds[0]) / 2,
+                            y - (badge_bounds[3] - badge_bounds[1]) / 2 - badge_bounds[1],
+                        ),
+                        "A",
+                        fill=ABSTRACT_BADGE_COLOUR,
+                        font=font(9, bold=True),
+                    )
             else:
                 draw.rectangle(box, fill=fill, outline="#174A7E" if node_id == self.selected_node else "white", width=3)
                 label = ("★ " if node_id in self.key_nodes else "") + str(row.LABEL)
@@ -1454,6 +1685,11 @@ class NetworkView(ttk.Frame):
                     ("Total SKU privileges", self.frame["PRIVILEGE"].nunique()),
                     ("Role search", self.role_search_var.get().strip()),
                     ("Privilege search", self.privilege_search_var.get().strip()),
+                    ("Read-only role word", self.read_only_word_var.get().strip()),
+                    ("Show Oracle predefined roles", bool(self.show_seeded_roles_var.get())),
+                    ("Show Application Implementation roles", bool(self.show_implementation_roles_var.get())),
+                    ("Show read-only roles", bool(self.show_read_only_roles_var.get())),
+                    ("Show abstract roles", bool(self.show_abstract_roles_var.get())),
                     ("Maximum roles", max_roles),
                     ("Maximum privileges", max_privileges),
                     ("Relationships for node selection", max_relationships),
@@ -1476,6 +1712,24 @@ class NetworkView(ttk.Frame):
                 )
                 nodes["TEMPORARILY_ADDED"] = nodes["ID"].astype(str).isin(temporary_node_ids)
                 nodes["MOST_CONNECTED_VISIBLE"] = nodes["ID"].astype(str).isin(self.key_nodes)
+                nodes["ROLE_GROUP"] = nodes.apply(
+                    lambda row: (
+                        ROLE_GROUP_LABELS[self._role_group(row["LABEL"])]
+                        if row["KIND"] == "role"
+                        else ""
+                    ),
+                    axis=1,
+                )
+                nodes["ROLE_TYPE"] = nodes.apply(
+                    lambda row: role_type_label(row["LABEL"]) if row["KIND"] == "role" else "",
+                    axis=1,
+                )
+                nodes["ABSTRACT_ROLE"] = nodes.apply(
+                    lambda row: bool(
+                        row["KIND"] == "role" and is_abstract_role(row["LABEL"])
+                    ),
+                    axis=1,
+                )
                 nodes = nodes.rename(
                     columns={
                         "ID": "Node ID",
@@ -1485,6 +1739,9 @@ class NetworkView(ttk.Frame):
                         "CONNECTIONS": "Visible relationships",
                         "TEMPORARILY_ADDED": "Revealed by selection",
                         "MOST_CONNECTED_VISIBLE": "Most connected visible node",
+                        "ROLE_GROUP": "Role group",
+                        "ROLE_TYPE": "Role type",
+                        "ABSTRACT_ROLE": "Abstract role",
                     }
                 )
             connections = display_edges.rename(
