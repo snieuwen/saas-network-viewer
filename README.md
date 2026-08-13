@@ -1,5 +1,7 @@
 # Oracle Fusion SaaS network viewer
 
+Current version: **v0.9.0**
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-brightgreen.svg)](LICENSE)
 
@@ -45,12 +47,14 @@ The source workbook is only read and is never modified.
 - **Role groups** provides independent checkboxes for **Oracle predefined**, **Application Implementation**, and **Read-only** roles. Oracle predefined roles are identified by an `ORA_` role-code prefix. Application Implementation roles are identified by `APPLICATION_IMPLEMENTATION` in the role code and form a separate group even when their code also starts with `ORA_`.
 - **Read-only role word** classifies role codes case-insensitively without acting as a normal search. Matching roles receive the blue read-only colour, while non-matching roles remain visible. Clear the **Read-only** checkbox to exclude only the matching roles. A read-only match has priority over the other role groups.
 - **Abstract roles** is an independent filter because an abstract role can also be Oracle predefined, custom, or read-only. Abstract roles are identified by the `_ABSTRACT` role-code suffix. Clear the checkbox to exclude them.
+- **Other roles**, shown as the final role-group checkbox, includes only roles that are not Oracle predefined, Application Implementation, read-only matches, or Abstract roles. It is enabled by default and uses the orange role colour.
 - **Maximum roles**, **Maximum privileges**, and **Relationships for node selection** determine the initial node set. All three default to 30; the role and privilege spinboxes use the actual number available for the selected SKU as their upper bound. Once the initial nodes are selected, every matching relationship between those nodes is drawn without adding further nodes. Search results always respect these settings.
 - **Minimum role/privilege users** excludes roles and privileges used by fewer than the specified number of total SKU users. It defaults to 1.
 - **Minimum shared users** removes relationships below the chosen threshold.
 - Choose **Apply filters**, press Enter in a numeric field, or use a spinbox arrow to apply numeric changes.
 - Choose **Reset filters** to return to the default of 30 roles, 30 privileges, and 30 relationships used for node selection.
 - The filter summary shows the number displayed alongside the total number available before the limits are applied.
+- The SKU selection area shows both **Total SKU users** and **Filtered SKU users**. The filtered count updates with the active name, role-group, read-only, Abstract, Other-role, and minimum-user filters.
 - The graph selects a connected set of the strongest relationships while maximising useful role and privilege coverage.
 
 ## Explore the network
@@ -86,6 +90,16 @@ The illustrated English user guide is available in both [Word](docs/Oracle-Fusio
 - **Export PNG…** creates a clean image directly from the network data, including the SKU, service, active filters, legend, and export time. It does not take a screen capture.
 - **Export Excel…** includes workbook metadata, all active filters, visible nodes and relationships, and both visible and complete details for a selected node.
 - After export, the application can open the containing folder.
+
+## Scenario analysis
+
+- Select a node, or use Ctrl/Shift+click to select several role and privilege nodes. Right-click a selected node and choose **Add selected nodes to scenario…**.
+- Choose an existing scenario from the list or choose **Create new scenario…** and enter a name. A scenario records excluded roles and privileges only; it never changes the source workbook or the displayed network.
+- The confirmation shows a simple access-based impact: users with an excluded assignment, users remaining in scope, and users with no remaining assignment after the exclusions.
+- Choose **Scenario report…** in the main title bar to compare the unrestricted baseline with up to two named scenarios side by side. The report also lists each scenario's exclusions.
+- In the report, select a scenario and choose **Edit selected scenario…** to remove individual role or privilege exclusions.
+- Each scenario is automatically saved as its own JSON file in the local **SaaS Network Viewer** application-data `scenarios` folder. The file is named after the scenario, and saved scenarios are loaded automatically when the application starts. Use **Reload saved scenarios** in the report after adding files to that folder manually. Scenarios are matched to their SKU and service, so unrelated scenarios are not offered for comparison.
+- Scenario results are an access-based estimate, not a contractual licence determination. Confirm the applicable Oracle metric, entitlement terms, and licence rules separately.
 
 ## License
 

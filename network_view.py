@@ -65,6 +65,14 @@ def is_abstract_role(role_code: object) -> bool:
     return str(role_code).strip().upper().endswith("_ABSTRACT")
 
 
+def is_other_role(role_code: object, read_only_word: str = "") -> bool:
+    """Return whether a role belongs to none of the selectable special groups."""
+    return (
+        classify_role(role_code, read_only_word) == ROLE_GROUP_STANDARD
+        and not is_abstract_role(role_code)
+    )
+
+
 def role_type_label(role_code: object) -> str:
     code = str(role_code).strip().upper()
     if code.endswith("_ABSTRACT"):
@@ -79,7 +87,12 @@ def role_type_label(role_code: object) -> str:
 
 
 class NetworkView(ttk.Frame):
-    def __init__(self, parent: tk.Misc) -> None:
+    def __init__(
+        self,
+        parent: tk.Misc,
+        on_add_to_scenario=None,
+        on_filtered_user_count=None,
+    ) -> None:
         super().__init__(parent)
         self.frame = pd.DataFrame()
         self.workbook_info: dict[str, object] = {}
@@ -97,6 +110,9 @@ class NetworkView(ttk.Frame):
         self.key_nodes: set[str] = set()
         self.base_order: dict[str, list[str]] = {"role": [], "privilege": []}
         self.selected_node: str | None = None
+        self.selected_nodes: set[str] = set()
+        self.on_add_to_scenario = on_add_to_scenario
+        self.on_filtered_user_count = on_filtered_user_count
         self.hover_item: tuple[str, object] | None = None
         self.current_details = pd.DataFrame()
         self.max_node_weight = 1
@@ -118,6 +134,7 @@ class NetworkView(ttk.Frame):
         self.show_implementation_roles_var = tk.BooleanVar(value=True)
         self.show_read_only_roles_var = tk.BooleanVar(value=True)
         self.show_abstract_roles_var = tk.BooleanVar(value=True)
+        self.show_other_roles_var = tk.BooleanVar(value=True)
         self.role_total_var = tk.StringVar(value="0 visible")
         self.privilege_total_var = tk.StringVar(value="0 visible")
         self.network_summary_var = tk.StringVar(value="No network loaded")
@@ -254,8 +271,8 @@ class NetworkView(ttk.Frame):
                 command=self.refresh,
             ).pack(side="left", padx=(0, 10))
         ttk.Label(role_groups, text="Word").pack(side="left", padx=(0, 4))
-        read_only_word = ttk.Entry(role_groups, textvariable=self.read_only_word_var, width=14)
-        read_only_word.pack(side="left", padx=(0, 10))
+        read_only_word = ttk.Entry(role_groups, textvariable=self.read_only_word_var, width=11)
+        read_only_word.pack(side="left", padx=(0, 6))
         abstract_badge = tk.Canvas(role_groups, width=16, height=16, highlightthickness=0)
         abstract_badge.create_oval(2, 2, 14, 14, fill="white", outline=ABSTRACT_BADGE_COLOUR, width=2)
         abstract_badge.create_text(8, 8, text="A", fill=ABSTRACT_BADGE_COLOUR, font=("Segoe UI", 7, "bold"))
@@ -264,6 +281,17 @@ class NetworkView(ttk.Frame):
             role_groups,
             text="Abstract roles",
             variable=self.show_abstract_roles_var,
+            command=self.refresh,
+        ).pack(side="left", padx=(0, 6))
+        other_swatch = tk.Canvas(role_groups, width=14, height=14, highlightthickness=0)
+        other_swatch.create_oval(
+            2, 2, 12, 12, fill=ROLE_GROUP_COLOURS[ROLE_GROUP_STANDARD], outline=""
+        )
+        other_swatch.pack(side="left", padx=(0, 2))
+        ttk.Checkbutton(
+            role_groups,
+            text="Other roles",
+            variable=self.show_other_roles_var,
             command=self.refresh,
         ).pack(side="left")
 
@@ -287,7 +315,7 @@ class NetworkView(ttk.Frame):
         role_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
         role_swatch.create_oval(2, 2, 12, 12, fill=KIND_COLOURS["role"], outline="")
         role_swatch.pack(side="left", padx=(0, 3))
-        ttk.Label(actions, text="Roles").pack(side="left")
+        ttk.Label(actions, text="Other roles").pack(side="left")
         added_role_swatch = tk.Canvas(actions, width=14, height=14, highlightthickness=0)
         added_role_swatch.create_oval(2, 2, 12, 12, fill=ADDED_KIND_COLOURS["role"], outline="")
         added_role_swatch.pack(side="left", padx=(14, 3))
@@ -320,7 +348,7 @@ class NetworkView(ttk.Frame):
         ttk.Button(actions, text="Fit width", command=self.fit_width).pack(side="right", padx=(12, 3))
         ttk.Button(actions, text="+", width=3, command=lambda: self._zoom_by(1.15)).pack(side="right")
         ttk.Button(actions, text="−", width=3, command=lambda: self._zoom_by(1 / 1.15)).pack(side="right", padx=3)
-        ttk.Label(actions, text="Node size = total SKU users; line width = shared SKU users").pack(
+        ttk.Label(actions, text="Node size = users; line width = shared users").pack(
             side="right", padx=12
         )
 
@@ -344,6 +372,7 @@ class NetworkView(ttk.Frame):
         x_scroll.grid(row=1, column=0, sticky="ew")
         self.canvas.bind("<Configure>", lambda _event: self.after_idle(self.draw))
         self.canvas.bind("<Button-1>", self._on_click)
+        self.canvas.bind("<Button-3>", self._on_right_click)
         self.canvas.bind("<Motion>", self._on_hover)
         self.canvas.bind("<Leave>", lambda _event: self._hide_tooltip())
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
@@ -437,6 +466,7 @@ class NetworkView(ttk.Frame):
     def set_data(self, frame: pd.DataFrame) -> None:
         self.frame = frame.copy()
         self.selected_node = None
+        self.selected_nodes.clear()
         self._set_detail_actions_enabled(False)
         self.role_search_var.set("")
         self.privilege_search_var.set("")
@@ -479,6 +509,10 @@ class NetworkView(ttk.Frame):
         visible = groups.map(self._role_group_is_visible)
         if not self.show_abstract_roles_var.get():
             visible &= ~self.frame["ROLE_CODE"].map(is_abstract_role)
+        if not self.show_other_roles_var.get():
+            visible &= ~self.frame["ROLE_CODE"].map(
+                lambda role: is_other_role(role, self.read_only_word_var.get())
+            )
         return self.frame[visible]
 
     def _node_fill(self, kind: str, label: str, *, revealed: bool = False) -> str:
@@ -562,6 +596,8 @@ class NetworkView(ttk.Frame):
             self.privilege_total_var.set("0 visible")
             self.network_summary_var.set("No SKU selected")
             self.selection_users_var.set("Users matching current filters: —")
+            if self.on_filtered_user_count:
+                self.on_filtered_user_count(None)
             self.detail_var.set("Select a SKU to display its network.")
             self.empty_message = "Select a SKU to display its network."
             self._fill_detail_tree(pd.DataFrame())
@@ -606,9 +642,12 @@ class NetworkView(ttk.Frame):
             f"{visible_privileges:,}/{available_privileges:,} privileges · "
             f"{len(self.edges):,}/{total_relationships:,} relationships"
         )
+        filtered_user_count = int(filtered["USER_LOGIN_HASH"].nunique())
         self.selection_users_var.set(
-            f"Users matching current filters: {filtered['USER_LOGIN_HASH'].nunique():,}"
+            f"Users matching current filters: {filtered_user_count:,}"
         )
+        if self.on_filtered_user_count:
+            self.on_filtered_user_count(filtered_user_count)
         self.selected_node = None
         self._clear_selected_expansion()
         self._build_neighbours()
@@ -652,6 +691,7 @@ class NetworkView(ttk.Frame):
         self.show_implementation_roles_var.set(True)
         self.show_read_only_roles_var.set(True)
         self.show_abstract_roles_var.set(True)
+        self.show_other_roles_var.set(True)
         if self.search_job is not None:
             self.after_cancel(self.search_job)
             self.search_job = None
@@ -1073,7 +1113,7 @@ class NetworkView(ttk.Frame):
                     revealed=node_id in temporary_node_ids,
                 )
             )
-            if node_id == self.selected_node:
+            if node_id in self.selected_nodes:
                 outline, outline_width = "#174A7E", 3
             else:
                 outline, outline_width = "#FFFFFF", 1
@@ -1147,10 +1187,47 @@ class NetworkView(ttk.Frame):
     def _on_click(self, event: tk.Event) -> None:
         x, y = self._event_coordinates(event)
         node_id = self._node_at(x, y, 4)
-        if node_id is None or node_id == self.selected_node:
+        additive = bool(event.state & 0x0004) or bool(event.state & 0x0001)
+        if node_id is None:
+            self.clear_focus()
+        elif additive:
+            if node_id in self.selected_nodes:
+                self.selected_nodes.remove(node_id)
+            else:
+                self.selected_nodes.add(node_id)
+            self.selected_node = node_id if self.selected_nodes else None
+            self._build_selected_expansion()
+            self._set_detail_actions_enabled(bool(self.selected_nodes))
+            self.draw()
+        elif node_id == self.selected_node and len(self.selected_nodes) <= 1:
             self.clear_focus()
         else:
             self.focus_node(node_id)
+
+    def _on_right_click(self, event: tk.Event) -> None:
+        x, y = self._event_coordinates(event)
+        node_id = self._node_at(x, y, 4)
+        if node_id is None:
+            return
+        if node_id not in self.selected_nodes:
+            self.selected_nodes = {node_id}
+            self.selected_node = node_id
+            self._build_selected_expansion()
+            self._set_detail_actions_enabled(True)
+            self.draw()
+        menu = tk.Menu(self, tearoff=False)
+        count = len(self.selected_nodes)
+        menu.add_command(
+            label=f"Add {count} selected node{'s' if count != 1 else ''} to scenario…",
+            command=lambda: self._add_selected_to_scenario(event.x_root, event.y_root),
+        )
+        menu.add_separator()
+        menu.add_command(label="Clear selection", command=self.clear_focus)
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _add_selected_to_scenario(self, x_root: int, y_root: int) -> None:
+        if self.on_add_to_scenario and self.selected_nodes:
+            self.on_add_to_scenario(sorted(self.selected_nodes), self.frame.copy(), x_root, y_root)
 
     def _on_hover(self, event: tk.Event) -> None:
         x, y = self._event_coordinates(event)
@@ -1248,6 +1325,7 @@ class NetworkView(ttk.Frame):
             return
         label = str(match.iloc[0]["LABEL"])
         self.selected_node = node_id
+        self.selected_nodes = {node_id}
         self._build_selected_expansion()
         self._copy_node_name_to_clipboard(label)
         self._set_detail_actions_enabled(True)
@@ -1266,6 +1344,7 @@ class NetworkView(ttk.Frame):
 
     def clear_focus(self) -> None:
         self.selected_node = None
+        self.selected_nodes.clear()
         self._clear_selected_expansion()
         self._set_detail_actions_enabled(False)
         self._fill_detail_tree(pd.DataFrame())
@@ -1516,7 +1595,8 @@ class NetworkView(ttk.Frame):
             f"Application Implementation {'on' if self.show_implementation_roles_var.get() else 'off'}  |  "
             f"Read-only {'on' if self.show_read_only_roles_var.get() else 'off'}  |  "
             f"Read-only word: {self.read_only_word_var.get().strip() or 'None'}  |  "
-            f"Abstract roles {'on' if self.show_abstract_roles_var.get() else 'off'}"
+            f"Abstract roles {'on' if self.show_abstract_roles_var.get() else 'off'}  |  "
+            f"Other roles {'on' if self.show_other_roles_var.get() else 'off'}"
         )
         draw.text((50, 148), role_groups, fill="#455A64", font=font(15))
         draw.text(
@@ -1527,7 +1607,7 @@ class NetworkView(ttk.Frame):
         )
         legend_y = 210
         legend_items = (
-            (50, ROLE_GROUP_COLOURS[ROLE_GROUP_STANDARD], "Roles"),
+            (50, ROLE_GROUP_COLOURS[ROLE_GROUP_STANDARD], "Other roles"),
             (150, ROLE_GROUP_COLOURS[ROLE_GROUP_SEEDED], "Oracle predefined"),
             (355, ROLE_GROUP_COLOURS[ROLE_GROUP_IMPLEMENTATION], "Application Implementation"),
             (650, ROLE_GROUP_COLOURS[ROLE_GROUP_READ_ONLY], "Read-only"),
@@ -1620,7 +1700,7 @@ class NetworkView(ttk.Frame):
                 revealed=node_id in temporary_node_ids,
             )
             if row.KIND == "role":
-                draw.ellipse(box, fill=fill, outline="#174A7E" if node_id == self.selected_node else "white", width=3)
+                draw.ellipse(box, fill=fill, outline="#174A7E" if node_id in self.selected_nodes else "white", width=3)
                 label = ("★ " if node_id in self.key_nodes else "") + str(row.LABEL)
                 bounds = draw.textbbox((0, 0), label, font=font(14))
                 abstract = is_abstract_role(row.LABEL)
@@ -1645,7 +1725,7 @@ class NetworkView(ttk.Frame):
                         font=font(9, bold=True),
                     )
             else:
-                draw.rectangle(box, fill=fill, outline="#174A7E" if node_id == self.selected_node else "white", width=3)
+                draw.rectangle(box, fill=fill, outline="#174A7E" if node_id in self.selected_nodes else "white", width=3)
                 label = ("★ " if node_id in self.key_nodes else "") + str(row.LABEL)
                 draw.text((x + radius + 10, y - 9), label, fill="#263238", font=font(14))
         image.save(filename, "PNG", optimize=True)
@@ -1681,6 +1761,10 @@ class NetworkView(ttk.Frame):
                     ("SKU", self._sku_name()),
                     ("Service", self._service_name()),
                     ("Total SKU users", self.frame["USER_LOGIN_HASH"].nunique()),
+                    (
+                        "Filtered SKU users",
+                        self._filtered_assignments()["USER_LOGIN_HASH"].nunique(),
+                    ),
                     ("Total SKU roles", self.frame["ROLE_CODE"].nunique()),
                     ("Total SKU privileges", self.frame["PRIVILEGE"].nunique()),
                     ("Role search", self.role_search_var.get().strip()),
@@ -1690,6 +1774,7 @@ class NetworkView(ttk.Frame):
                     ("Show Application Implementation roles", bool(self.show_implementation_roles_var.get())),
                     ("Show read-only roles", bool(self.show_read_only_roles_var.get())),
                     ("Show abstract roles", bool(self.show_abstract_roles_var.get())),
+                    ("Show other roles", bool(self.show_other_roles_var.get())),
                     ("Maximum roles", max_roles),
                     ("Maximum privileges", max_privileges),
                     ("Relationships for node selection", max_relationships),

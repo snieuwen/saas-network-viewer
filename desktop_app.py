@@ -11,15 +11,17 @@ import pandas as pd
 
 from access_analysis import load_raw_data, load_workbook_info, sku_catalog
 from network_view import NetworkView
+from scenario_analysis import Scenario, ScenarioLibrary, ScenarioPicker, ScenarioReport, scenario_impact
 
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+APP_VERSION = "0.9.0"
 
 
 class OracleFusionSaaSNetworkViewerApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Oracle Fusion SaaS Roles and Privileges network")
+        self.root.title(f"Oracle Fusion SaaS Roles and Privileges network — v{APP_VERSION}")
         screen_width = root.winfo_screenwidth()
         screen_height = root.winfo_screenheight()
         width = min(1420, max(900, screen_width - 80))
@@ -40,9 +42,18 @@ class OracleFusionSaaSNetworkViewerApp:
         self.selected_sku_label = ""
         self.service_var = tk.StringVar()
         self.user_count_var = tk.StringVar(value="—")
+        self.filtered_user_count_var = tk.StringVar(value="—")
         self.prepared_for_var = tk.StringVar()
         self.dates_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Choose a workbook to begin")
+        self.active_sku = ""
+        self.active_service = ""
+        self.scenario_library = ScenarioLibrary()
+        try:
+            self.scenario_library.load_saved()
+        except (OSError, ValueError, TypeError):
+            # A damaged local scenario file must never prevent opening a workbook.
+            self.scenario_library = ScenarioLibrary()
 
         self._configure_style()
         self._build_ui()
@@ -71,6 +82,10 @@ class OracleFusionSaaSNetworkViewerApp:
         self.progress = ttk.Progressbar(title_row, mode="indeterminate", length=150)
         self.source_button = ttk.Button(title_row, text="Open workbook", command=self.browse_source)
         self.source_button.pack(side="right")
+        self.scenario_report_button = ttk.Button(
+            title_row, text="Scenario report…", command=self.open_scenario_report, state="disabled"
+        )
+        self.scenario_report_button.pack(side="right", padx=(0, 8))
 
         source_row = ttk.Frame(outer)
         source_row.pack(fill="x", pady=(2, 0))
@@ -108,12 +123,27 @@ class OracleFusionSaaSNetworkViewerApp:
             row=0, column=2, sticky="e"
         )
         ttk.Label(selector, textvariable=self.user_count_var, style="UserValue.TLabel").grid(
-            row=1, column=2, sticky="e"
+            row=1, column=2, sticky="e", padx=(0, 16)
         )
+        ttk.Label(selector, text="Filtered SKU users", style="InfoLabel.TLabel").grid(
+            row=0, column=3, sticky="e"
+        )
+        ttk.Label(
+            selector,
+            textvariable=self.filtered_user_count_var,
+            style="UserValue.TLabel",
+        ).grid(row=1, column=3, sticky="e")
 
-        self.network_view = NetworkView(outer)
+        self.network_view = NetworkView(
+            outer,
+            on_add_to_scenario=self.add_nodes_to_scenario,
+            on_filtered_user_count=self._set_filtered_user_count,
+        )
         self.network_view.pack(fill="both", expand=True)
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="e", pady=(2, 0))
+
+    def _set_filtered_user_count(self, count: int | None) -> None:
+        self.filtered_user_count_var.set("—" if count is None else f"{count:,}")
 
     def browse_source(self) -> None:
         current_value = self.source_var.get().strip()
@@ -283,9 +313,71 @@ class OracleFusionSaaSNetworkViewerApp:
         self.sku_combo["values"] = self.all_labels
         self.service_var.set(service)
         self.user_count_var.set(f"{user_count:,}")
+        self.active_sku = sku
+        self.active_service = service
         selected_data = self.data[self.data["SKU"].eq(sku) & self.data["SERVICE"].eq(service)]
         self.network_view.set_data(selected_data)
+        self.scenario_report_button.configure(state="normal")
         self.status_var.set(f"Network for {sku}")
+
+    def add_nodes_to_scenario(
+        self, node_ids: list[str], frame: pd.DataFrame, x_root: int, y_root: int
+    ) -> None:
+        """Create or extend a named scenario from the graph context menu."""
+        existing = self.scenario_library.for_sku(self.active_sku, self.active_service)
+        picker = ScenarioPicker(self.root, existing, x_root=x_root, y_root=y_root)
+        self.root.wait_window(picker)
+        name = picker.result
+        if not name:
+            return
+        scenario = next((item for item in existing if item.name.casefold() == name.casefold()), None)
+        if scenario is None:
+            name_in_use = next(
+                (item for item in self.scenario_library.scenarios if item.name.casefold() == name.casefold()),
+                None,
+            )
+            if name_in_use is not None:
+                messagebox.showwarning(
+                    "Scenario name already used",
+                    "Scenario names must be unique because each scenario is saved as a file with its name. "
+                    f"“{name}” already belongs to {name_in_use.sku} | {name_in_use.service}.",
+                    parent=self.root,
+                )
+                return
+            scenario = Scenario(name=name, sku=self.active_sku, service=self.active_service)
+            self.scenario_library.scenarios.append(scenario)
+        scenario.add_nodes(node_ids)
+        try:
+            self.scenario_library.save_scenario(scenario)
+        except OSError as exc:
+            messagebox.showwarning(
+                "Scenario not saved",
+                f"The scenario was updated in this session but could not be saved automatically:\n{exc}",
+                parent=self.root,
+            )
+        impact = scenario_impact(frame, scenario)
+        roles = sum(node.startswith("role:") for node in node_ids)
+        privileges = len(node_ids) - roles
+        messagebox.showinfo(
+            "Scenario updated",
+            f"{scenario.name} now excludes {len(scenario.excluded_roles):,} role(s) and "
+            f"{len(scenario.excluded_privileges):,} privilege(s).\n\n"
+            f"Current access-based impact:\n"
+            f"• {impact['in_scope']:,} users remain in scope\n"
+            f"• {impact['removed']:,} users are removed from scope\n"
+            f"• {impact['affected']:,} users have an excluded assignment\n\n"
+            "Open Scenario report… to compare it with the unrestricted baseline or another scenario.",
+            parent=self.root,
+        )
+        self.status_var.set(f"Added {roles} role(s) and {privileges} privilege(s) to scenario “{scenario.name}”")
+
+    def open_scenario_report(self) -> None:
+        if not self.active_sku:
+            return
+        frame = self.data[
+            self.data["SKU"].eq(self.active_sku) & self.data["SERVICE"].eq(self.active_service)
+        ]
+        ScenarioReport(self.root, self.scenario_library, frame, self.active_sku, self.active_service)
 
 def main() -> None:
     root = tk.Tk()
