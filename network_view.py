@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import math
 import os
+import subprocess
+import sys
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
@@ -373,6 +375,8 @@ class NetworkView(ttk.Frame):
         self.canvas.bind("<Configure>", lambda _event: self.after_idle(self.draw))
         self.canvas.bind("<Button-1>", self._on_click)
         self.canvas.bind("<Button-3>", self._on_right_click)
+        if sys.platform == "darwin":
+            self.canvas.bind("<Button-2>", self._on_right_click)
         self.canvas.bind("<Motion>", self._on_hover)
         self.canvas.bind("<Leave>", lambda _event: self._hide_tooltip())
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
@@ -433,6 +437,7 @@ class NetworkView(ttk.Frame):
         self.detail_tree.bind("<Double-1>", self._focus_detail_row)
         self.detail_tree.bind("<Return>", self._focus_detail_row)
         self.detail_tree.bind("<Control-c>", self._copy_detail_rows)
+        self.detail_tree.bind("<Command-c>", self._copy_detail_rows)
         self.detail_frame = detail_frame
         self.clear_selection_button = next(
             widget for widget in header.winfo_children() if isinstance(widget, ttk.Button)
@@ -1860,7 +1865,12 @@ class NetworkView(ttk.Frame):
             f"Saved to:\n{filename}\n\nOpen the containing folder?",
         )
         if open_folder:
-            os.startfile(filename.parent)
+            if sys.platform == "win32":
+                os.startfile(filename.parent)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(filename.parent)])
+            else:
+                subprocess.Popen(["xdg-open", str(filename.parent)])
 
     def _sku_name(self) -> str:
         return str(self.frame["SKU"].iloc[0]) if not self.frame.empty and "SKU" in self.frame else "SKU"

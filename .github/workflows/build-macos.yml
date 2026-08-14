@@ -1,0 +1,99 @@
+name: Build macOS application
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-macos.yml"
+      - "*.py"
+      - "requirements.txt"
+
+permissions:
+  contents: write
+
+jobs:
+  build-apple-silicon:
+    name: Apple Silicon standalone app
+    runs-on: macos-15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: arm64
+          cache: pip
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Read application version
+        id: version
+        run: |
+          VERSION=$(python -c "from desktop_app import APP_VERSION; print(APP_VERSION)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate source
+        run: |
+          python -m py_compile access_analysis.py network_view.py desktop_app.py scenario_analysis.py
+          python -c "from desktop_app import APP_VERSION; assert APP_VERSION == '${{ steps.version.outputs.version }}'"
+
+      - name: Build standalone app bundle
+        run: |
+          python -m PyInstaller \
+            --noconfirm \
+            --clean \
+            --onedir \
+            --windowed \
+            --name "Oracle Fusion SaaS network viewer" \
+            --osx-bundle-identifier "nl.nieuwen.saas-network-viewer" \
+            desktop_app.py
+
+      - name: Apply version and ad-hoc signature
+        run: |
+          APP="dist/Oracle Fusion SaaS network viewer.app"
+          PLIST="$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${{ steps.version.outputs.version }}" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.version }}" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${{ steps.version.outputs.version }}" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.version.outputs.version }}" "$PLIST"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Create distributable ZIP
+        id: package
+        run: |
+          ZIP="saas-network-viewer-macos-apple-silicon-v${{ steps.version.outputs.version }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "dist/Oracle Fusion SaaS network viewer.app" "$ZIP"
+          shasum -a 256 "$ZIP" | tee "$ZIP.sha256"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: saas-network-viewer-macos-apple-silicon-v${{ steps.version.outputs.version }}
+          path: |
+            ${{ steps.package.outputs.zip }}
+            ${{ steps.package.outputs.zip }}.sha256
+          if-no-files-found: error
+
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          ZIP: ${{ steps.package.outputs.zip }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag \
+              --title "Oracle Fusion SaaS network viewer $TAG" \
+              --notes "Standalone builds for $TAG. The macOS Apple Silicon app is ad-hoc signed but not Apple-notarized; on first launch, use Control-click > Open if Gatekeeper asks for confirmation."
+          fi
+          gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber

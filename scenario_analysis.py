@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -51,11 +52,11 @@ def scenario_impact(frame: pd.DataFrame, scenario: Scenario | None = None) -> di
 class ScenarioLibrary:
     def __init__(self) -> None:
         self.scenarios: list[Scenario] = []
-        self.storage_dir = (
-            Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
-            / "SaaS Network Viewer"
-            / "scenarios"
-        )
+        if sys.platform == "darwin":
+            application_data = Path.home() / "Library" / "Application Support"
+        else:
+            application_data = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
+        self.storage_dir = application_data / "SaaS Network Viewer" / "scenarios"
 
     def for_sku(self, sku: str, service: str) -> list[Scenario]:
         return [item for item in self.scenarios if item.sku == sku and item.service == service]

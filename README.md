@@ -17,7 +17,7 @@ The application runs locally and does not send workbook data to an external serv
 
 This is an independent personal project by Sandor Nieuwenhuijs. It is not an Oracle Corporation product or project and is not sponsored, endorsed, approved, maintained, supported, or warranted by Oracle or its affiliates. Oracle and related product names are trademarks of Oracle and/or its affiliates and are used only to identify the services this viewer relates to. See the [LICENSE](LICENSE) for the complete non-affiliation, trademark, confidentiality, warranty, and liability notices.
 
-## Start
+## Start on Windows
 
 1. Download the real Windows executable using [Download SaaS Network Viewer](https://github.com/snieuwen/saas-network-viewer/raw/refs/heads/main/saas-network-viewer.exe). The complete file is approximately 43 MB; a file of roughly 151 KB is the GitHub web page, not the application.
 2. Double-click `start_app.bat` in the complete source folder to run the latest source version. The launcher uses an available Python runtime and falls back to `saas-network-viewer.exe` only when Python is unavailable. You can also start the packaged EXE directly.
@@ -25,6 +25,15 @@ This is an independent personal project by Sandor Nieuwenhuijs. It is not an Ora
 4. If Windows SmartScreen warns about the unsigned application, verify that it came from this repository before choosing **More info** and **Run anyway**.
 
 The source workbook is only read and is never modified.
+
+## Start on Apple Silicon macOS
+
+1. Download `saas-network-viewer-macos-apple-silicon-v0.9.0.zip` from the [v0.9.0 release](https://github.com/snieuwen/saas-network-viewer/releases/tag/v0.9.0).
+2. Unzip it and move **Oracle Fusion SaaS network viewer.app** to **Applications**.
+3. The app is ad-hoc signed but not Apple-notarized. On first launch, Control-click the app, choose **Open**, and confirm **Open** if Gatekeeper asks. Only do this for a copy downloaded from this repository.
+4. Choose a workbook in the application. No workbook, SKU, or service is selected at startup.
+
+The macOS build is a self-contained Apple Silicon application and does not require Python or the source repository. It is built natively on GitHub's `macos-15` arm64 runner. Intel Macs are not supported by this build.
 
 ## Select a workbook
 
