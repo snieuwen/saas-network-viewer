@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import messagebox, ttk
 
 import pandas as pd
@@ -168,6 +169,51 @@ class ScenarioEditor(tk.Toplevel):
         self.fill()
         self.on_changed()
 
+
+class ScenarioExclusionsDialog(tk.Toplevel):
+    """Read-only, scrollable view of every exclusion in a scenario."""
+
+    def __init__(self, parent: tk.Misc, scenario: Scenario) -> None:
+        super().__init__(parent)
+        self.title(f"Scenario exclusions — {scenario.name}")
+        self.geometry("820x500")
+        self.minsize(600, 320)
+        self.transient(parent)
+
+        ttk.Label(
+            self,
+            text=f"{scenario.name}: {len(scenario.excluded_roles):,} excluded role(s), "
+            f"{len(scenario.excluded_privileges):,} excluded privilege(s)",
+            padding=(10, 10, 10, 8),
+        ).pack(anchor="w")
+
+        table = ttk.Frame(self)
+        table.pack(fill="both", expand=True, padx=10)
+        tree = ttk.Treeview(table, columns=("type", "name"), show="headings")
+        tree.heading("type", text="Type", anchor="w")
+        tree.heading("name", text="Excluded role or privilege", anchor="w")
+        tree.column("type", width=110, anchor="w", stretch=False)
+        tree.column("name", width=650, anchor="w", stretch=True)
+        vertical = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+        horizontal = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+
+        for value in scenario.excluded_roles:
+            tree.insert("", "end", values=("Role", value))
+        for value in scenario.excluded_privileges:
+            tree.insert("", "end", values=("Privilege", value))
+
+        buttons = ttk.Frame(self, padding=10)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
+        self.bind("<Escape>", lambda _event: self.destroy())
+
+
 class ScenarioReport(tk.Toplevel):
     """Independent window for comparing baseline and saved scenarios."""
     def __init__(self, parent: tk.Misc, library: ScenarioLibrary, frame: pd.DataFrame, sku: str, service: str) -> None:
@@ -178,6 +224,10 @@ class ScenarioReport(tk.Toplevel):
         self.library, self.frame, self.sku, self.service = library, frame.copy(), sku, service
         self.available = self.library.for_sku(sku, service)
         self.selection_vars = [tk.StringVar(), tk.StringVar()]
+        self.detail_scenarios: dict[str, Scenario] = {}
+        self.current_scenarios: list[Scenario | None] = []
+        self._details_after_id: str | None = None
+        self._resizing_detail_column = False
         self._build()
         self.refresh()
 
@@ -203,17 +253,35 @@ class ScenarioReport(tk.Toplevel):
 
         self.summary = ttk.Treeview(self, columns=("metric", "baseline", "first", "second"), show="headings", height=5)
         for column, heading, width in (("metric", "Measure", 285), ("baseline", "Baseline", 150), ("first", "Scenario 1", 220), ("second", "Scenario 2", 220)):
-            self.summary.heading(column, text=heading)
-            self.summary.column(column, width=width, anchor="w" if column == "metric" else "e", stretch=column == "metric")
+            self.summary.heading(column, text=heading, anchor="w")
+            self.summary.column(column, width=width, anchor="w", stretch=column == "metric")
         self.summary.pack(fill="x", padx=10)
 
         details = ttk.LabelFrame(self, text="Scenario exclusions", padding=7)
         details.pack(fill="both", expand=True, padx=10, pady=10)
-        self.detail_tree = ttk.Treeview(details, columns=("scenario", "roles", "privileges"), show="headings")
+        self.detail_tree = ttk.Treeview(
+            details, columns=("scenario", "roles", "privileges"), show="headings", height=3
+        )
         for column, heading, width in (("scenario", "Scenario", 200), ("roles", "Excluded roles", 370), ("privileges", "Excluded privileges", 370)):
-            self.detail_tree.heading(column, text=heading)
+            self.detail_tree.heading(column, text=heading, anchor="w")
             self.detail_tree.column(column, width=width, anchor="w", stretch=True)
         self.detail_tree.pack(fill="both", expand=True)
+        self.detail_tree.bind("<Double-1>", self._open_clicked_exclusions)
+        self.detail_tree.bind("<Return>", lambda _event: self.open_selected_exclusions())
+        self.detail_tree.bind("<Configure>", self._schedule_detail_refresh)
+        self.detail_tree.bind("<ButtonPress-1>", self._start_detail_column_resize, add="+")
+        self.detail_tree.bind("<ButtonRelease-1>", self._finish_detail_column_resize, add="+")
+        detail_actions = ttk.Frame(details)
+        detail_actions.pack(fill="x", pady=(6, 0))
+        ttk.Label(
+            detail_actions,
+            text="Long lists are abbreviated with …. Double-click a scenario to view every exclusion.",
+        ).pack(side="left")
+        ttk.Button(
+            detail_actions,
+            text="View complete exclusions…",
+            command=self.open_selected_exclusions,
+        ).pack(side="right")
         ttk.Label(self, text="‘Estimated required licences’ is the remaining number of users with at least one non-excluded assignment. Confirm contractual licensing rules separately.").pack(anchor="w", padx=12, pady=(0, 8))
 
     def _selected(self, index: int) -> Scenario | None:
@@ -241,10 +309,75 @@ class ScenarioReport(tk.Toplevel):
         )
         for label, key in metrics:
             self.summary.insert("", "end", values=(label, f"{baseline[key]:,}", *(f"{item[key]:,}" if item else "—" for item in impacts)))
+        self.current_scenarios = scenarios
+        self._refresh_detail_rows()
+
+    def _schedule_detail_refresh(self, _event: tk.Event | None = None) -> None:
+        if self._details_after_id is not None:
+            self.after_cancel(self._details_after_id)
+        self._details_after_id = self.after_idle(self._refresh_detail_rows)
+
+    def _start_detail_column_resize(self, event: tk.Event) -> None:
+        self._resizing_detail_column = self.detail_tree.identify_region(event.x, event.y) == "separator"
+
+    def _finish_detail_column_resize(self, _event: tk.Event) -> None:
+        if self._resizing_detail_column:
+            self._resizing_detail_column = False
+            self._schedule_detail_refresh()
+
+    def _abbreviate_exclusions(self, values: list[str], column: str) -> str:
+        if not values:
+            return "—"
+        available_width = max(20, int(self.detail_tree.column(column, "width")) - 18)
+        font = tkfont.nametofont("TkDefaultFont")
+        complete = ", ".join(values)
+        if font.measure(complete) <= available_width:
+            return complete
+        visible: list[str] = []
+        for value in values:
+            candidate = f"{', '.join((*visible, value))}, …"
+            if font.measure(candidate) > available_width:
+                break
+            visible.append(value)
+        return f"{', '.join(visible)}, …" if visible else "…"
+
+    def _refresh_detail_rows(self) -> None:
+        self._details_after_id = None
         self.detail_tree.delete(*self.detail_tree.get_children())
-        for scenario in scenarios:
+        self.detail_scenarios = {}
+        for index, scenario in enumerate(self.current_scenarios):
             if scenario:
-                self.detail_tree.insert("", "end", values=(scenario.name, ", ".join(scenario.excluded_roles) or "—", ", ".join(scenario.excluded_privileges) or "—"))
+                item_id = f"scenario-{index}"
+                self.detail_scenarios[item_id] = scenario
+                self.detail_tree.insert(
+                    "",
+                    "end",
+                    iid=item_id,
+                    values=(
+                        scenario.name,
+                        self._abbreviate_exclusions(scenario.excluded_roles, "roles"),
+                        self._abbreviate_exclusions(scenario.excluded_privileges, "privileges"),
+                    ),
+                )
+
+    def _open_clicked_exclusions(self, event: tk.Event) -> None:
+        item_id = self.detail_tree.identify_row(event.y)
+        if item_id:
+            self.detail_tree.selection_set(item_id)
+            self.open_selected_exclusions()
+
+    def open_selected_exclusions(self) -> None:
+        selected = self.detail_tree.selection()
+        if not selected:
+            messagebox.showinfo(
+                "Choose a scenario",
+                "Select a scenario in the exclusions table first.",
+                parent=self,
+            )
+            return
+        scenario = self.detail_scenarios.get(selected[0])
+        if scenario is not None:
+            ScenarioExclusionsDialog(self, scenario)
 
     def edit_selected(self) -> None:
         scenario = self._selected(0) or self._selected(1)
