@@ -93,6 +93,7 @@ class NetworkView(ttk.Frame):
         self,
         parent: tk.Misc,
         on_add_to_scenario=None,
+        on_add_privilege_roles_to_scenario=None,
         on_filtered_user_count=None,
     ) -> None:
         super().__init__(parent)
@@ -114,6 +115,7 @@ class NetworkView(ttk.Frame):
         self.selected_node: str | None = None
         self.selected_nodes: set[str] = set()
         self.on_add_to_scenario = on_add_to_scenario
+        self.on_add_privilege_roles_to_scenario = on_add_privilege_roles_to_scenario
         self.on_filtered_user_count = on_filtered_user_count
         self.hover_item: tuple[str, object] | None = None
         self.current_details = pd.DataFrame()
@@ -1222,10 +1224,21 @@ class NetworkView(ttk.Frame):
             self.draw()
         menu = tk.Menu(self, tearoff=False)
         count = len(self.selected_nodes)
-        menu.add_command(
-            label=f"Add {count} selected node{'s' if count != 1 else ''} to scenario…",
-            command=lambda: self._add_selected_to_scenario(event.x_root, event.y_root),
-        )
+        selected_id = next(iter(self.selected_nodes)) if count == 1 else ""
+        if selected_id.startswith("privilege:"):
+            menu.add_command(
+                label="Exclude privilege from all roles in scenario…",
+                command=lambda: self._add_selected_to_scenario(event.x_root, event.y_root),
+            )
+            menu.add_command(
+                label="Exclude privilege from selected role(s) in scenario…",
+                command=lambda: self._add_privilege_to_roles(event.x_root, event.y_root),
+            )
+        else:
+            menu.add_command(
+                label=f"Add {count} selected node{'s' if count != 1 else ''} to scenario…",
+                command=lambda: self._add_selected_to_scenario(event.x_root, event.y_root),
+            )
         menu.add_separator()
         menu.add_command(label="Clear selection", command=self.clear_focus)
         menu.tk_popup(event.x_root, event.y_root)
@@ -1233,6 +1246,15 @@ class NetworkView(ttk.Frame):
     def _add_selected_to_scenario(self, x_root: int, y_root: int) -> None:
         if self.on_add_to_scenario and self.selected_nodes:
             self.on_add_to_scenario(sorted(self.selected_nodes), self.frame.copy(), x_root, y_root)
+
+    def _add_privilege_to_roles(self, x_root: int, y_root: int) -> None:
+        if not self.on_add_privilege_roles_to_scenario or len(self.selected_nodes) != 1:
+            return
+        node_id = next(iter(self.selected_nodes))
+        if node_id.startswith("privilege:"):
+            self.on_add_privilege_roles_to_scenario(
+                node_id.split(":", 1)[1], self.frame.copy(), x_root, y_root
+            )
 
     def _on_hover(self, event: tk.Event) -> None:
         x, y = self._event_coordinates(event)

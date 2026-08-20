@@ -1,6 +1,6 @@
 # Oracle Fusion SaaS network viewer
 
-Current version: **v0.9.0**
+Current version: **v1.0.0**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-brightgreen.svg)](LICENSE)
@@ -28,7 +28,7 @@ The source workbook is only read and is never modified.
 
 ## Start on Apple Silicon macOS
 
-1. Download `saas-network-viewer-macos-apple-silicon-v0.9.0.zip` from the [v0.9.0 release](https://github.com/snieuwen/saas-network-viewer/releases/tag/v0.9.0).
+1. Download `saas-network-viewer-macos-apple-silicon-v1.0.0.zip` from the [v1.0.0 release](https://github.com/snieuwen/saas-network-viewer/releases/tag/v1.0.0).
 2. Unzip it and move **Oracle Fusion SaaS network viewer.app** to **Applications**.
 3. The app is ad-hoc signed but not Apple-notarized. On first launch, Control-click the app, choose **Open**, and confirm **Open** if Gatekeeper asks. Only do this for a copy downloaded from this repository.
 4. Choose a workbook in the application. No workbook, SKU, or service is selected at startup.
@@ -102,12 +102,16 @@ The illustrated English user guide is available in both [Word](docs/Oracle-Fusio
 
 ## Scenario analysis
 
-- Select a node, or use Ctrl/Shift+click to select several role and privilege nodes. Right-click a selected node and choose **Add selected nodes to scenario…**.
-- Choose an existing scenario from the list or choose **Create new scenario…** and enter a name. A scenario records excluded roles and privileges only; it never changes the source workbook or the displayed network.
+- Select a node, or use Ctrl/Shift+click to select several role and privilege nodes. Right-click a role or a mixed selection and choose **Add selected nodes to scenario…**.
+- Right-click a single privilege to choose between **Exclude privilege from all roles in scenario…** and **Exclude privilege from selected role(s) in scenario…**. The role picker lists every role containing that privilege in the current SKU, including roles that are not currently visible in the network.
+- Choose an existing scenario from the list or choose **Create new scenario…** and enter a name. A scenario can record globally excluded roles, globally excluded privileges, and exact privilege-role relationships. It never changes the source workbook or the displayed network.
 - The confirmation shows a simple access-based impact: users with an excluded assignment, users remaining in scope, and users with no remaining assignment after the exclusions.
 - Choose **Scenario report…** in the main title bar to compare the unrestricted baseline with up to two named scenarios side by side. Comparison headings and values are left-aligned. Long role and privilege exclusion lists are abbreviated to fit the current column width; resize a column to show more or fewer entries, or double-click a scenario (or use **View complete exclusions…**) to open the complete scrollable list.
-- In the report, select a scenario and choose **Edit selected scenario…** to remove individual role or privilege exclusions.
-- Each scenario is automatically saved as its own JSON file in the local **SaaS Network Viewer** application-data `scenarios` folder. The file is named after the scenario, and saved scenarios are loaded automatically when the application starts. Use **Reload saved scenarios** in the report after adding files to that folder manually. Scenarios are matched to their SKU and service, so unrelated scenarios are not offered for comparison.
+- In the report, select a scenario and choose **Edit selected scenario…** to remove individual role, privilege, or privilege-role exclusions.
+- Each scenario is automatically saved as an Excel workbook in the local `scenarios` folder beside the source files, or beside the executable in a standalone build. This folder is excluded from Git. The file is named after the scenario, and saved scenarios are loaded automatically when the application starts. Use **Reload saved scenarios** in the report after adding files to that folder manually. Scenarios are matched to their SKU and service, so unrelated scenarios are not offered for comparison.
+- A scenario workbook has exactly three sheets: **Roles**, **Privileges**, and **Privilege-Roles**. Every row whose first cell starts with `#` is a comment or group heading and is ignored by calculations. The first row of each sheet explains this rule, and row 2 contains the column headers.
+- **Privilege-Roles** uses only the columns **Privilege** and **Role**. Category headings are comment rows between the exclusions, for example `# Manage` or `# Inkoop Raadplegen`; subsequent privilege-role rows belong to that display group until the next `#` row.
+- Scenario name, SKU, service, and creation date are shown in a metadata block on the **Roles** sheet. JSON scenario files are not imported.
 - Scenario results are an access-based estimate, not a contractual licence determination. Confirm the applicable Oracle metric, entitlement terms, and licence rules separately.
 
 ## License

@@ -2,6 +2,7 @@
 .build_tools/
 build/
 dist/
+scenarios/
 __pycache__/
 *.pyc
 .streamlit/secrets.toml

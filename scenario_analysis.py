@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
-import os
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
@@ -11,6 +9,22 @@ import tkinter.font as tkfont
 from tkinter import messagebox, ttk
 
 import pandas as pd
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+
+
+SCENARIO_CATEGORY_ORDER = {
+    "Manage": 0,
+    "Inkoop Raadplegen": 1,
+    "Contract Raadplegen": 2,
+    "Raadplegen": 3,
+    "Projecten": 4,
+}
+SCENARIO_SHEETS = ("Roles", "Privileges", "Privilege-Roles")
+DEFAULT_SCENARIO_COMMENT = (
+    "# Rows whose first cell starts with # are comments/group headings; ignored."
+)
 
 
 @dataclass
@@ -20,6 +34,8 @@ class Scenario:
     service: str
     excluded_roles: list[str] = field(default_factory=list)
     excluded_privileges: list[str] = field(default_factory=list)
+    excluded_privilege_roles: list[dict[str, str]] = field(default_factory=list)
+    sheet_comments: dict[str, str] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
     def add_nodes(self, node_ids: list[str]) -> None:
@@ -31,16 +47,49 @@ class Scenario:
         self.excluded_roles.sort()
         self.excluded_privileges.sort()
 
+    def add_privilege_roles(self, privilege: str, roles: list[str], category: str = "") -> None:
+        existing = {
+            (item.get("privilege", ""), item.get("role", ""))
+            for item in self.excluded_privilege_roles
+        }
+        for role in roles:
+            pair = (privilege, role)
+            if pair not in existing:
+                item = {"privilege": privilege, "role": role}
+                if category:
+                    item["category"] = category
+                self.excluded_privilege_roles.append(item)
+                existing.add(pair)
+        self.excluded_privilege_roles.sort(
+            key=lambda item: (
+                SCENARIO_CATEGORY_ORDER.get(item.get("category", ""), 999),
+                item.get("category", ""),
+                item.get("privilege", ""),
+                item.get("role", ""),
+            )
+        )
+
 
 def scenario_impact(frame: pd.DataFrame, scenario: Scenario | None = None) -> dict[str, int]:
     """Return the access-based user impact after scenario exclusions."""
     baseline_users = set(frame["USER_LOGIN_HASH"].astype(str)) if not frame.empty else set()
     if scenario is None:
         return {"in_scope": len(baseline_users), "removed": 0, "affected": 0}
-    excluded = frame[
+    excluded_mask = (
         frame["ROLE_CODE"].isin(scenario.excluded_roles)
         | frame["PRIVILEGE"].isin(scenario.excluded_privileges)
-    ]
+    )
+    privilege_role_pairs = {
+        (item.get("privilege", ""), item.get("role", ""))
+        for item in scenario.excluded_privilege_roles
+        if item.get("privilege") and item.get("role")
+    }
+    if privilege_role_pairs:
+        excluded_mask |= pd.Series(
+            zip(frame["PRIVILEGE"].astype(str), frame["ROLE_CODE"].astype(str)),
+            index=frame.index,
+        ).isin(privilege_role_pairs)
+    excluded = frame[excluded_mask]
     remaining = frame.drop(excluded.index)
     remaining_users = set(remaining["USER_LOGIN_HASH"].astype(str))
     return {
@@ -53,11 +102,12 @@ def scenario_impact(frame: pd.DataFrame, scenario: Scenario | None = None) -> di
 class ScenarioLibrary:
     def __init__(self) -> None:
         self.scenarios: list[Scenario] = []
-        if sys.platform == "darwin":
-            application_data = Path.home() / "Library" / "Application Support"
-        else:
-            application_data = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
-        self.storage_dir = application_data / "SaaS Network Viewer" / "scenarios"
+        application_dir = (
+            Path(sys.executable).resolve().parent
+            if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parent
+        )
+        self.storage_dir = application_dir / "scenarios"
 
     def for_sku(self, sku: str, service: str) -> list[Scenario]:
         return [item for item in self.scenarios if item.sku == sku and item.service == service]
@@ -65,23 +115,206 @@ class ScenarioLibrary:
     @staticmethod
     def _filename(name: str) -> str:
         cleaned = "".join("_" if char in '<>:"/\\|?*' else char for char in name).strip(" .")
-        return f"{cleaned or 'Untitled scenario'}.json"
+        return f"{cleaned or 'Untitled scenario'}.xlsx"
 
     def save_scenario(self, scenario: Scenario) -> None:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         path = self.storage_dir / self._filename(scenario.name)
-        path.write_text(json.dumps(asdict(scenario), indent=2), encoding="utf-8")
+        workbook = Workbook()
+        roles_sheet = workbook.active
+        roles_sheet.title = "Roles"
+        privileges_sheet = workbook.create_sheet("Privileges")
+        pairs_sheet = workbook.create_sheet("Privilege-Roles")
+        self._write_scenario_sheet(
+            roles_sheet,
+            ["Role"],
+            [[value] for value in scenario.excluded_roles],
+            scenario.sheet_comments.get("Roles", ""),
+        )
+        metadata = (
+            ("Scenario", scenario.name),
+            ("SKU", scenario.sku),
+            ("Service", scenario.service),
+            ("Created at", scenario.created_at),
+        )
+        for row, (label, value) in enumerate(metadata, start=1):
+            roles_sheet.cell(row, 4, label)
+            roles_sheet.cell(row, 5, value)
+            roles_sheet.cell(row, 4).font = Font(bold=True, color="59636E")
+            roles_sheet.cell(row, 4).alignment = Alignment(horizontal="left")
+            roles_sheet.cell(row, 5).alignment = Alignment(horizontal="left")
+        roles_sheet.column_dimensions["B"].width = 2
+        roles_sheet.column_dimensions["C"].width = 2
+        roles_sheet.column_dimensions["D"].width = 16
+        roles_sheet.column_dimensions["E"].width = 78
+        self._write_scenario_sheet(
+            privileges_sheet,
+            ["Privilege"],
+            [[value] for value in scenario.excluded_privileges],
+            scenario.sheet_comments.get("Privileges", ""),
+        )
+        self._write_scenario_sheet(
+            pairs_sheet,
+            ["Privilege", "Role"],
+            self._privilege_role_rows(scenario.excluded_privilege_roles),
+            scenario.sheet_comments.get("Privilege-Roles", ""),
+        )
+        workbook.save(path)
+
+    @staticmethod
+    def _privilege_role_rows(items: list[dict[str, str]]) -> list[list[str]]:
+        rows: list[list[str]] = []
+        active_category = ""
+        for item in items:
+            category = item.get("category", "").strip()
+            if category and category != active_category:
+                rows.append([f"# {category}", ""])
+                active_category = category
+            rows.append([item.get("privilege", ""), item.get("role", "")])
+        return rows
+
+    @staticmethod
+    def _write_scenario_sheet(worksheet, headers: list[str], rows: list[list[str]], comment: str) -> None:
+        comment = comment.strip() or DEFAULT_SCENARIO_COMMENT
+        if comment and not comment.startswith("#"):
+            comment = f"# {comment}"
+        header_row = 2
+        if comment:
+            worksheet.cell(1, 1, comment)
+            worksheet.cell(1, 1).font = Font(italic=True, color="667085")
+        for column, header in enumerate(headers, start=1):
+            cell = worksheet.cell(header_row, column, header)
+            cell.fill = PatternFill("solid", fgColor="1F4E78")
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.alignment = Alignment(horizontal="left")
+        for row_index, values in enumerate(rows, start=header_row + 1):
+            for column, value in enumerate(values, start=1):
+                worksheet.cell(row_index, column, value).alignment = Alignment(horizontal="left")
+                if str(values[0]).strip().startswith("#"):
+                    worksheet.cell(row_index, column).font = Font(
+                        bold=True, italic=True, color="1F4E78"
+                    )
+                    worksheet.cell(row_index, column).fill = PatternFill(
+                        "solid", fgColor="D9EAF7"
+                    )
+        widths = {"Privilege": 54, "Role": 62}
+        for column, header in enumerate(headers, start=1):
+            worksheet.column_dimensions[get_column_letter(column)].width = widths[header]
+        worksheet.freeze_panes = f"A{header_row + 1}"
+        worksheet.auto_filter.ref = f"A{header_row}:{get_column_letter(len(headers))}{max(header_row, header_row + len(rows))}"
+        worksheet.sheet_view.showGridLines = False
 
     def load_saved(self) -> None:
         self.scenarios = []
         if not self.storage_dir.exists():
             return
-        for path in self.storage_dir.glob("*.json"):
+        for path in self.storage_dir.glob("*.xlsx"):
             try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                self.scenarios.append(Scenario(**payload))
-            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                self.scenarios.append(self._load_scenario_workbook(path))
+            except (OSError, ValueError, TypeError, KeyError):
                 continue
+
+    @staticmethod
+    def _load_scenario_workbook(path: Path) -> Scenario:
+        workbook = load_workbook(path, read_only=False, data_only=True)
+        missing = [name for name in SCENARIO_SHEETS if name not in workbook.sheetnames]
+        extra = [name for name in workbook.sheetnames if name not in SCENARIO_SHEETS]
+        if missing or extra:
+            details = []
+            if missing:
+                details.append(f"missing: {', '.join(missing)}")
+            if extra:
+                details.append(f"unexpected: {', '.join(extra)}")
+            raise ValueError(f"Scenario workbook must contain exactly three sheets ({'; '.join(details)})")
+
+        def read_sheet(sheet_name: str, required_headers: list[str]) -> tuple[list[dict[str, str]], str]:
+            worksheet = workbook[sheet_name]
+            first_value = str(worksheet.cell(1, 1).value or "").strip()
+            comment = first_value if first_value.startswith("#") else ""
+            header_row = 2
+            headers = {
+                str(worksheet.cell(header_row, column).value or "").strip().casefold(): column
+                for column in range(1, worksheet.max_column + 1)
+            }
+            absent = [header for header in required_headers if header.casefold() not in headers]
+            if absent:
+                raise ValueError(f"{sheet_name} is missing column(s): {', '.join(absent)}")
+            rows: list[dict[str, str]] = []
+            for row_index in range(header_row + 1, worksheet.max_row + 1):
+                first_value = str(worksheet.cell(row_index, 1).value or "").strip()
+                if first_value.startswith("#"):
+                    continue
+                item = {
+                    header: str(
+                        worksheet.cell(row_index, headers[header.casefold()]).value or ""
+                    ).strip()
+                    for header in required_headers
+                }
+                if any(item.values()):
+                    rows.append(item)
+            return rows, comment
+
+        role_rows, role_comment = read_sheet("Roles", ["Role"])
+        privilege_rows, privilege_comment = read_sheet("Privileges", ["Privilege"])
+        pair_sheet = workbook["Privilege-Roles"]
+        pair_first_value = str(pair_sheet.cell(1, 1).value or "").strip()
+        pair_comment = pair_first_value if pair_first_value.startswith("#") else ""
+        pair_headers = {
+            str(pair_sheet.cell(2, column).value or "").strip().casefold(): column
+            for column in range(1, pair_sheet.max_column + 1)
+        }
+        if "privilege" not in pair_headers or "role" not in pair_headers:
+            raise ValueError("Privilege-Roles is missing Privilege or Role")
+        pair_rows: list[dict[str, str]] = []
+        category = ""
+        for row_index in range(3, pair_sheet.max_row + 1):
+            privilege = str(
+                pair_sheet.cell(row_index, pair_headers["privilege"]).value or ""
+            ).strip()
+            if privilege.startswith("#"):
+                category = privilege[1:].strip()
+                continue
+            role = str(pair_sheet.cell(row_index, pair_headers["role"]).value or "").strip()
+            if privilege and role:
+                item = {"privilege": privilege, "role": role}
+                if category:
+                    item["category"] = category
+                pair_rows.append(item)
+        metadata = {
+            str(workbook["Roles"].cell(row, 4).value or "").strip(): str(
+                workbook["Roles"].cell(row, 5).value or ""
+            ).strip()
+            for row in range(1, 5)
+        }
+        missing_metadata = [
+            label for label in ("Scenario", "SKU", "Service", "Created at") if not metadata.get(label)
+        ]
+        if missing_metadata:
+            workbook.close()
+            raise ValueError(f"Roles sheet is missing metadata: {', '.join(missing_metadata)}")
+        created_at = metadata.get("Created at") or datetime.now().isoformat(timespec="seconds")
+        scenario = Scenario(
+            name=path.stem,
+            sku=metadata.get("SKU", ""),
+            service=metadata.get("Service", ""),
+            excluded_roles=sorted({item["Role"] for item in role_rows if item["Role"]}),
+            excluded_privileges=sorted(
+                {item["Privilege"] for item in privilege_rows if item["Privilege"]}
+            ),
+            excluded_privilege_roles=pair_rows,
+            sheet_comments={
+                name: comment
+                for name, comment in (
+                    ("Roles", role_comment),
+                    ("Privileges", privilege_comment),
+                    ("Privilege-Roles", pair_comment),
+                )
+                if comment
+            },
+            created_at=created_at,
+        )
+        workbook.close()
+        return scenario
 
 
 class ScenarioPicker(tk.Toplevel):
@@ -133,19 +366,143 @@ class ScenarioPicker(tk.Toplevel):
         self.destroy()
 
 
+class ScenarioRolePicker(tk.Toplevel):
+    """Choose one or more roles that contain a selected privilege."""
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        privilege: str,
+        roles: list[tuple[str, int]],
+        *,
+        x_root: int | None = None,
+        y_root: int | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.title("Choose role(s)")
+        self.geometry("760x460")
+        self.minsize(560, 320)
+        self.result: list[str] = []
+        self.roles = roles
+        self.search_var = tk.StringVar()
+
+        body = ttk.Frame(self, padding=12)
+        body.pack(fill="both", expand=True)
+        ttk.Label(
+            body,
+            text=f"Exclude {privilege} only from the selected role(s).",
+            wraplength=720,
+        ).pack(anchor="w")
+        ttk.Label(body, text="Search roles").pack(anchor="w", pady=(10, 2))
+        search = ttk.Entry(body, textvariable=self.search_var)
+        search.pack(fill="x")
+        search.bind("<KeyRelease>", lambda _event: self._fill())
+
+        table = ttk.Frame(body)
+        table.pack(fill="both", expand=True, pady=(8, 10))
+        self.tree = ttk.Treeview(
+            table,
+            columns=("role", "users"),
+            show="headings",
+            selectmode="extended",
+        )
+        self.tree.heading("role", text="Role", anchor="w")
+        self.tree.heading("users", text="Users", anchor="e")
+        self.tree.column("role", width=610, anchor="w", stretch=True)
+        self.tree.column("users", width=90, anchor="e", stretch=False)
+        scrollbar = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        self.tree.bind("<Double-1>", lambda _event: self._accept())
+
+        actions = ttk.Frame(body)
+        actions.pack(fill="x")
+        ttk.Label(actions, text="Ctrl/Shift+click to select multiple roles.").pack(side="left")
+        ttk.Button(actions, text="Cancel", command=self.destroy).pack(side="right")
+        ttk.Button(actions, text="Use selected role(s)", command=self._accept).pack(
+            side="right", padx=(0, 6)
+        )
+
+        self._fill()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.transient(parent)
+        self.update_idletasks()
+        if x_root is not None and y_root is not None:
+            width, height = self.winfo_width(), self.winfo_height()
+            x = min(x_root + 8, self.winfo_screenwidth() - width - 12)
+            y = min(y_root + 8, self.winfo_screenheight() - height - 36)
+            self.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
+        self.grab_set()
+        search.focus_set()
+
+    def _fill(self) -> None:
+        selected_roles = {
+            str(self.tree.item(item_id, "values")[0]) for item_id in self.tree.selection()
+        }
+        self.tree.delete(*self.tree.get_children())
+        query = self.search_var.get().strip().casefold()
+        for index, (role, users) in enumerate(self.roles):
+            if query and query not in role.casefold():
+                continue
+            item_id = f"role-{index}"
+            self.tree.insert("", "end", iid=item_id, values=(role, f"{users:,}"))
+            if role in selected_roles:
+                self.tree.selection_add(item_id)
+
+    def _accept(self) -> None:
+        self.result = [str(self.tree.item(item_id, "values")[0]) for item_id in self.tree.selection()]
+        if not self.result:
+            messagebox.showinfo("Choose a role", "Select at least one role.", parent=self)
+            return
+        self.destroy()
+
+
 class ScenarioEditor(tk.Toplevel):
     def __init__(self, parent: tk.Misc, scenario: Scenario, on_changed) -> None:
         super().__init__(parent)
         self.title(f"Edit scenario — {scenario.name}")
-        self.geometry("760x440")
-        self.minsize(600, 300)
+        self.geometry("980x440")
+        self.minsize(720, 300)
         self.scenario, self.on_changed = scenario, on_changed
-        ttk.Label(self, text="Remove exclusions that should no longer apply.", padding=10).pack(anchor="w")
-        self.tree = ttk.Treeview(self, columns=("type", "name"), show="headings", selectmode="extended")
-        self.tree.heading("type", text="Type")
-        self.tree.heading("name", text="Excluded role or privilege")
-        self.tree.column("type", width=110, stretch=False)
-        self.tree.column("name", width=600, stretch=True)
+        self.privilege_role_items: dict[str, dict[str, str]] = {}
+        ttk.Label(
+            self,
+            text="Remove exclusions that should no longer apply.",
+            padding=10,
+            anchor="w",
+            justify="left",
+        ).pack(fill="x")
+        comments = "    ".join(
+            f"{name}: {comment}"
+            for name, comment in scenario.sheet_comments.items()
+            if comment
+        )
+        if comments:
+            ttk.Label(
+                self,
+                text=comments,
+                padding=(10, 0, 10, 8),
+                anchor="w",
+                justify="left",
+                wraplength=940,
+            ).pack(fill="x")
+        self.tree = ttk.Treeview(
+            self,
+            columns=("type", "category", "name", "role"),
+            show="headings",
+            selectmode="extended",
+        )
+        self.tree.heading("type", text="Type", anchor="w")
+        self.tree.heading("category", text="Category", anchor="w")
+        self.tree.heading("name", text="Excluded role or privilege", anchor="w")
+        self.tree.heading(
+            "role", text="Role for role-specific privilege exclusion", anchor="w"
+        )
+        self.tree.column("type", width=150, stretch=False, anchor="w")
+        self.tree.column("category", width=130, stretch=False, anchor="w")
+        self.tree.column("name", width=350, stretch=True, anchor="w")
+        self.tree.column("role", width=330, stretch=True, anchor="w")
         self.tree.pack(fill="both", expand=True, padx=10, pady=(0, 8))
         buttons = ttk.Frame(self, padding=(10, 0, 10, 10))
         buttons.pack(fill="x")
@@ -155,13 +512,33 @@ class ScenarioEditor(tk.Toplevel):
 
     def fill(self) -> None:
         self.tree.delete(*self.tree.get_children())
+        self.privilege_role_items = {}
         for value in self.scenario.excluded_roles:
-            self.tree.insert("", "end", iid=f"role:{value}", values=("Role", value))
+            self.tree.insert("", "end", iid=f"role:{value}", values=("Role", "", value, ""))
         for value in self.scenario.excluded_privileges:
-            self.tree.insert("", "end", iid=f"privilege:{value}", values=("Privilege", value))
+            self.tree.insert("", "end", iid=f"privilege:{value}", values=("Privilege", "", value, ""))
+        for index, item in enumerate(self.scenario.excluded_privilege_roles):
+            item_id = f"privilege-role:{index}"
+            self.privilege_role_items[item_id] = item
+            self.tree.insert(
+                "",
+                "end",
+                iid=item_id,
+                values=(
+                    "Privilege from role",
+                    item.get("category", ""),
+                    item.get("privilege", ""),
+                    item.get("role", ""),
+                ),
+            )
 
     def remove_selected(self) -> None:
         for node_id in self.tree.selection():
+            if node_id in self.privilege_role_items:
+                item = self.privilege_role_items[node_id]
+                if item in self.scenario.excluded_privilege_roles:
+                    self.scenario.excluded_privilege_roles.remove(item)
+                continue
             kind, value = node_id.split(":", 1)
             target = self.scenario.excluded_roles if kind == "role" else self.scenario.excluded_privileges
             if value in target:
@@ -176,24 +553,31 @@ class ScenarioExclusionsDialog(tk.Toplevel):
     def __init__(self, parent: tk.Misc, scenario: Scenario) -> None:
         super().__init__(parent)
         self.title(f"Scenario exclusions — {scenario.name}")
-        self.geometry("820x500")
-        self.minsize(600, 320)
+        self.geometry("1020x500")
+        self.minsize(720, 320)
         self.transient(parent)
 
         ttk.Label(
             self,
             text=f"{scenario.name}: {len(scenario.excluded_roles):,} excluded role(s), "
-            f"{len(scenario.excluded_privileges):,} excluded privilege(s)",
+            f"{len(scenario.excluded_privileges):,} excluded privilege(s), and "
+            f"{len(scenario.excluded_privilege_roles):,} role-specific privilege exclusion(s)",
             padding=(10, 10, 10, 8),
         ).pack(anchor="w")
 
         table = ttk.Frame(self)
         table.pack(fill="both", expand=True, padx=10)
-        tree = ttk.Treeview(table, columns=("type", "name"), show="headings")
+        tree = ttk.Treeview(
+            table, columns=("type", "category", "name", "role"), show="headings"
+        )
         tree.heading("type", text="Type", anchor="w")
+        tree.heading("category", text="Category", anchor="w")
         tree.heading("name", text="Excluded role or privilege", anchor="w")
-        tree.column("type", width=110, anchor="w", stretch=False)
-        tree.column("name", width=650, anchor="w", stretch=True)
+        tree.heading("role", text="Role for role-specific privilege exclusion", anchor="w")
+        tree.column("type", width=150, anchor="w", stretch=False)
+        tree.column("category", width=130, anchor="w", stretch=False)
+        tree.column("name", width=360, anchor="w", stretch=True)
+        tree.column("role", width=360, anchor="w", stretch=True)
         vertical = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
         horizontal = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
         tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
@@ -204,9 +588,20 @@ class ScenarioExclusionsDialog(tk.Toplevel):
         table.columnconfigure(0, weight=1)
 
         for value in scenario.excluded_roles:
-            tree.insert("", "end", values=("Role", value))
+            tree.insert("", "end", values=("Role", "", value, ""))
         for value in scenario.excluded_privileges:
-            tree.insert("", "end", values=("Privilege", value))
+            tree.insert("", "end", values=("Privilege", "", value, ""))
+        for item in scenario.excluded_privilege_roles:
+            tree.insert(
+                "",
+                "end",
+                values=(
+                    "Privilege from role",
+                    item.get("category", ""),
+                    item.get("privilege", ""),
+                    item.get("role", ""),
+                ),
+            )
 
         buttons = ttk.Frame(self, padding=10)
         buttons.pack(fill="x")
@@ -260,9 +655,17 @@ class ScenarioReport(tk.Toplevel):
         details = ttk.LabelFrame(self, text="Scenario exclusions", padding=7)
         details.pack(fill="both", expand=True, padx=10, pady=10)
         self.detail_tree = ttk.Treeview(
-            details, columns=("scenario", "roles", "privileges"), show="headings", height=3
+            details,
+            columns=("scenario", "roles", "privileges", "privilege_roles"),
+            show="headings",
+            height=3,
         )
-        for column, heading, width in (("scenario", "Scenario", 200), ("roles", "Excluded roles", 370), ("privileges", "Excluded privileges", 370)):
+        for column, heading, width in (
+            ("scenario", "Scenario", 170),
+            ("roles", "Excluded roles", 260),
+            ("privileges", "Excluded privileges", 260),
+            ("privilege_roles", "Privileges excluded from roles", 310),
+        ):
             self.detail_tree.heading(column, text=heading, anchor="w")
             self.detail_tree.column(column, width=width, anchor="w", stretch=True)
         self.detail_tree.pack(fill="both", expand=True)
@@ -357,6 +760,18 @@ class ScenarioReport(tk.Toplevel):
                         scenario.name,
                         self._abbreviate_exclusions(scenario.excluded_roles, "roles"),
                         self._abbreviate_exclusions(scenario.excluded_privileges, "privileges"),
+                        self._abbreviate_exclusions(
+                            [
+                                (
+                                    f"[{item.get('category')}] "
+                                    if item.get("category")
+                                    else ""
+                                )
+                                + f"{item.get('privilege', '')} → {item.get('role', '')}"
+                                for item in scenario.excluded_privilege_roles
+                            ],
+                            "privilege_roles",
+                        ),
                     ),
                 )
 

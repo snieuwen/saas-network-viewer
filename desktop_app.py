@@ -4,18 +4,32 @@ import threading
 import tkinter as tk
 import queue
 import sys
+import os
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import pandas as pd
 
+
+if getattr(sys, "frozen", False):
+    _BUNDLED_TCL = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "tcl"
+    os.environ.setdefault("TCL_LIBRARY", str(_BUNDLED_TCL / "tcl8.6"))
+    os.environ.setdefault("TK_LIBRARY", str(_BUNDLED_TCL / "tk8.6"))
+
 from access_analysis import load_raw_data, load_workbook_info, sku_catalog
 from network_view import NetworkView
-from scenario_analysis import Scenario, ScenarioLibrary, ScenarioPicker, ScenarioReport, scenario_impact
+from scenario_analysis import (
+    Scenario,
+    ScenarioLibrary,
+    ScenarioPicker,
+    ScenarioReport,
+    ScenarioRolePicker,
+    scenario_impact,
+)
 
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
-APP_VERSION = "0.9.0"
+APP_VERSION = "1.0.0"
 
 
 class OracleFusionSaaSNetworkViewerApp:
@@ -137,6 +151,7 @@ class OracleFusionSaaSNetworkViewerApp:
         self.network_view = NetworkView(
             outer,
             on_add_to_scenario=self.add_nodes_to_scenario,
+            on_add_privilege_roles_to_scenario=self.add_privilege_roles_to_scenario,
             on_filtered_user_count=self._set_filtered_user_count,
         )
         self.network_view.pack(fill="both", expand=True)
@@ -324,12 +339,62 @@ class OracleFusionSaaSNetworkViewerApp:
         self, node_ids: list[str], frame: pd.DataFrame, x_root: int, y_root: int
     ) -> None:
         """Create or extend a named scenario from the graph context menu."""
+        scenario = self._choose_scenario(x_root, y_root)
+        if scenario is None:
+            return
+        scenario.add_nodes(node_ids)
+        self._save_scenario(scenario)
+        impact = scenario_impact(frame, scenario)
+        roles = sum(node.startswith("role:") for node in node_ids)
+        privileges = len(node_ids) - roles
+        self._show_scenario_updated(scenario, impact)
+        self.status_var.set(f"Added {roles} role(s) and {privileges} privilege(s) to scenario “{scenario.name}”")
+
+    def add_privilege_roles_to_scenario(
+        self, privilege: str, frame: pd.DataFrame, x_root: int, y_root: int
+    ) -> None:
+        """Exclude one privilege only from selected roles in a named scenario."""
+        matching = frame[frame["PRIVILEGE"].astype(str).eq(privilege)]
+        roles = [
+            (str(role), int(group["USER_LOGIN_HASH"].nunique()))
+            for role, group in matching.groupby("ROLE_CODE")
+        ]
+        roles.sort(key=lambda item: (-item[1], item[0]))
+        if not roles:
+            messagebox.showinfo(
+                "No matching roles",
+                f"No roles containing {privilege} were found in the current SKU.",
+                parent=self.root,
+            )
+            return
+        role_picker = ScenarioRolePicker(
+            self.root,
+            privilege,
+            roles,
+            x_root=x_root,
+            y_root=y_root,
+        )
+        self.root.wait_window(role_picker)
+        if not role_picker.result:
+            return
+        scenario = self._choose_scenario(x_root, y_root)
+        if scenario is None:
+            return
+        scenario.add_privilege_roles(privilege, role_picker.result)
+        self._save_scenario(scenario)
+        impact = scenario_impact(frame, scenario)
+        self._show_scenario_updated(scenario, impact)
+        self.status_var.set(
+            f"Excluded {privilege} from {len(role_picker.result):,} role(s) in scenario “{scenario.name}”"
+        )
+
+    def _choose_scenario(self, x_root: int, y_root: int) -> Scenario | None:
         existing = self.scenario_library.for_sku(self.active_sku, self.active_service)
         picker = ScenarioPicker(self.root, existing, x_root=x_root, y_root=y_root)
         self.root.wait_window(picker)
         name = picker.result
         if not name:
-            return
+            return None
         scenario = next((item for item in existing if item.name.casefold() == name.casefold()), None)
         if scenario is None:
             name_in_use = next(
@@ -343,10 +408,12 @@ class OracleFusionSaaSNetworkViewerApp:
                     f"“{name}” already belongs to {name_in_use.sku} | {name_in_use.service}.",
                     parent=self.root,
                 )
-                return
+                return None
             scenario = Scenario(name=name, sku=self.active_sku, service=self.active_service)
             self.scenario_library.scenarios.append(scenario)
-        scenario.add_nodes(node_ids)
+        return scenario
+
+    def _save_scenario(self, scenario: Scenario) -> None:
         try:
             self.scenario_library.save_scenario(scenario)
         except OSError as exc:
@@ -355,13 +422,13 @@ class OracleFusionSaaSNetworkViewerApp:
                 f"The scenario was updated in this session but could not be saved automatically:\n{exc}",
                 parent=self.root,
             )
-        impact = scenario_impact(frame, scenario)
-        roles = sum(node.startswith("role:") for node in node_ids)
-        privileges = len(node_ids) - roles
+
+    def _show_scenario_updated(self, scenario: Scenario, impact: dict[str, int]) -> None:
         messagebox.showinfo(
             "Scenario updated",
             f"{scenario.name} now excludes {len(scenario.excluded_roles):,} role(s) and "
-            f"{len(scenario.excluded_privileges):,} privilege(s).\n\n"
+            f"{len(scenario.excluded_privileges):,} privilege(s) globally, plus "
+            f"{len(scenario.excluded_privilege_roles):,} privilege-role relationship(s).\n\n"
             f"Current access-based impact:\n"
             f"• {impact['in_scope']:,} users remain in scope\n"
             f"• {impact['removed']:,} users are removed from scope\n"
@@ -369,7 +436,6 @@ class OracleFusionSaaSNetworkViewerApp:
             "Open Scenario report… to compare it with the unrestricted baseline or another scenario.",
             parent=self.root,
         )
-        self.status_var.set(f"Added {roles} role(s) and {privileges} privilege(s) to scenario “{scenario.name}”")
 
     def open_scenario_report(self) -> None:
         if not self.active_sku:
