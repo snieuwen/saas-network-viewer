@@ -26,10 +26,11 @@ from scenario_analysis import (
     ScenarioRolePicker,
     scenario_impact,
 )
+from user_analysis import UserExplorer
 
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1"
 
 
 class OracleFusionSaaSNetworkViewerApp:
@@ -100,6 +101,10 @@ class OracleFusionSaaSNetworkViewerApp:
             title_row, text="Scenario report…", command=self.open_scenario_report, state="disabled"
         )
         self.scenario_report_button.pack(side="right", padx=(0, 8))
+        self.user_explorer_button = ttk.Button(
+            title_row, text="User explorer…", command=self.open_user_explorer, state="disabled"
+        )
+        self.user_explorer_button.pack(side="right", padx=(0, 8))
 
         source_row = ttk.Frame(outer)
         source_row.pack(fill="x", pady=(2, 0))
@@ -333,6 +338,7 @@ class OracleFusionSaaSNetworkViewerApp:
         selected_data = self.data[self.data["SKU"].eq(sku) & self.data["SERVICE"].eq(service)]
         self.network_view.set_data(selected_data)
         self.scenario_report_button.configure(state="normal")
+        self.user_explorer_button.configure(state="normal")
         self.status_var.set(f"Network for {sku}")
 
     def add_nodes_to_scenario(
@@ -444,6 +450,19 @@ class OracleFusionSaaSNetworkViewerApp:
             self.data["SKU"].eq(self.active_sku) & self.data["SERVICE"].eq(self.active_service)
         ]
         ScenarioReport(self.root, self.scenario_library, frame, self.active_sku, self.active_service)
+
+    def open_user_explorer(self) -> None:
+        if not self.active_sku:
+            return
+        frame = self.data[
+            self.data["SKU"].eq(self.active_sku) & self.data["SERVICE"].eq(self.active_service)
+        ]
+        UserExplorer(
+            self.root,
+            frame,
+            self.scenario_library.for_sku(self.active_sku, self.active_service),
+            on_focus_user=self.network_view.focus_user,
+        )
 
 def main() -> None:
     root = tk.Tk()

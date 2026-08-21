@@ -13,6 +13,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from user_analysis import UserAssignmentDialog, scenario_exclusion_mask, scenario_user_summary
+
 
 SCENARIO_CATEGORY_ORDER = {
     "Manage": 0,
@@ -75,20 +77,7 @@ def scenario_impact(frame: pd.DataFrame, scenario: Scenario | None = None) -> di
     baseline_users = set(frame["USER_LOGIN_HASH"].astype(str)) if not frame.empty else set()
     if scenario is None:
         return {"in_scope": len(baseline_users), "removed": 0, "affected": 0}
-    excluded_mask = (
-        frame["ROLE_CODE"].isin(scenario.excluded_roles)
-        | frame["PRIVILEGE"].isin(scenario.excluded_privileges)
-    )
-    privilege_role_pairs = {
-        (item.get("privilege", ""), item.get("role", ""))
-        for item in scenario.excluded_privilege_roles
-        if item.get("privilege") and item.get("role")
-    }
-    if privilege_role_pairs:
-        excluded_mask |= pd.Series(
-            zip(frame["PRIVILEGE"].astype(str), frame["ROLE_CODE"].astype(str)),
-            index=frame.index,
-        ).isin(privilege_role_pairs)
+    excluded_mask = scenario_exclusion_mask(frame, scenario)
     excluded = frame[excluded_mask]
     remaining = frame.drop(excluded.index)
     remaining_users = set(remaining["USER_LOGIN_HASH"].astype(str))
@@ -652,8 +641,10 @@ class ScenarioReport(tk.Toplevel):
             self.summary.column(column, width=width, anchor="w", stretch=column == "metric")
         self.summary.pack(fill="x", padx=10)
 
-        details = ttk.LabelFrame(self, text="Scenario exclusions", padding=7)
-        details.pack(fill="both", expand=True, padx=10, pady=10)
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        details = ttk.Frame(notebook, padding=7)
+        notebook.add(details, text="Exclusions")
         self.detail_tree = ttk.Treeview(
             details,
             columns=("scenario", "roles", "privileges", "privilege_roles"),
@@ -685,6 +676,41 @@ class ScenarioReport(tk.Toplevel):
             text="View complete exclusions…",
             command=self.open_selected_exclusions,
         ).pack(side="right")
+
+        users = ttk.Frame(notebook, padding=7)
+        users.rowconfigure(1, weight=1)
+        users.columnconfigure(0, weight=1)
+        notebook.add(users, text="User impact")
+        self.user_impact_var = tk.StringVar(value="Select one or two scenarios to compare affected users.")
+        ttk.Label(users, textvariable=self.user_impact_var).grid(row=0, column=0, sticky="w", pady=(0, 5))
+        user_columns = (
+            "USER", "BASELINE", "S1_EXCLUDED", "S1_REMAINING", "S1_STATUS",
+            "S2_EXCLUDED", "S2_REMAINING", "S2_STATUS",
+        )
+        self.user_tree = ttk.Treeview(users, columns=user_columns, show="headings")
+        for column, heading, width in (
+            ("USER", "User (hashed)", 255),
+            ("BASELINE", "Baseline relationships", 135),
+            ("S1_EXCLUDED", "Scenario 1 excluded", 125),
+            ("S1_REMAINING", "Scenario 1 remaining", 130),
+            ("S1_STATUS", "Scenario 1 status", 140),
+            ("S2_EXCLUDED", "Scenario 2 excluded", 125),
+            ("S2_REMAINING", "Scenario 2 remaining", 130),
+            ("S2_STATUS", "Scenario 2 status", 140),
+        ):
+            self.user_tree.heading(column, text=heading, anchor="w", command=lambda c=column: self._sort_users(c))
+            self.user_tree.column(column, width=width, anchor="w" if column in {"USER", "S1_STATUS", "S2_STATUS"} else "e")
+        user_y = ttk.Scrollbar(users, orient="vertical", command=self.user_tree.yview)
+        user_x = ttk.Scrollbar(users, orient="horizontal", command=self.user_tree.xview)
+        self.user_tree.configure(yscrollcommand=user_y.set, xscrollcommand=user_x.set)
+        self.user_tree.grid(row=1, column=0, sticky="nsew")
+        user_y.grid(row=1, column=1, sticky="ns")
+        user_x.grid(row=2, column=0, sticky="ew")
+        self.user_tree.bind("<Double-1>", lambda _event: self.open_selected_user())
+        user_actions = ttk.Frame(users)
+        user_actions.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        ttk.Label(user_actions, text="Double-click a user to inspect every baseline and scenario assignment.").pack(side="left")
+        ttk.Button(user_actions, text="View user assignments…", command=self.open_selected_user).pack(side="right")
         ttk.Label(self, text="‘Estimated required licences’ is the remaining number of users with at least one non-excluded assignment. Confirm contractual licensing rules separately.").pack(anchor="w", padx=12, pady=(0, 8))
 
     def _selected(self, index: int) -> Scenario | None:
@@ -714,6 +740,77 @@ class ScenarioReport(tk.Toplevel):
             self.summary.insert("", "end", values=(label, f"{baseline[key]:,}", *(f"{item[key]:,}" if item else "—" for item in impacts)))
         self.current_scenarios = scenarios
         self._refresh_detail_rows()
+        self._refresh_user_rows()
+
+    def _refresh_user_rows(self) -> None:
+        baseline = scenario_user_summary(self.frame).set_index("USER")
+        comparisons = [
+            scenario_user_summary(self.frame, scenario).set_index("USER") if scenario else None
+            for scenario in self.current_scenarios
+        ]
+        current = pd.DataFrame(index=baseline.index)
+        current["USER"] = current.index.astype(str)
+        current["BASELINE"] = baseline["RELATIONSHIPS"]
+        affected = pd.Series(False, index=current.index)
+        for number, comparison in enumerate(comparisons, start=1):
+            if comparison is None:
+                current[f"S{number}_EXCLUDED"] = 0
+                current[f"S{number}_REMAINING"] = baseline["RELATIONSHIPS"]
+                current[f"S{number}_STATUS"] = "—"
+            else:
+                current[f"S{number}_EXCLUDED"] = comparison["EXCLUDED"]
+                current[f"S{number}_REMAINING"] = comparison["REMAINING"]
+                current[f"S{number}_STATUS"] = comparison["STATUS"]
+                affected |= comparison["EXCLUDED"].gt(0)
+        current = current[affected].reset_index(drop=True)
+        self.current_user_rows = current.sort_values(
+            ["S1_EXCLUDED", "S2_EXCLUDED", "USER"],
+            ascending=[False, False, True],
+            kind="stable",
+        )
+        self.user_tree.heading(
+            "S1_STATUS",
+            text=f"{self.current_scenarios[0].name} status" if self.current_scenarios[0] else "Scenario 1 status",
+        )
+        self.user_tree.heading(
+            "S2_STATUS",
+            text=f"{self.current_scenarios[1].name} status" if self.current_scenarios[1] else "Scenario 2 status",
+        )
+        self._fill_user_rows()
+
+    def _fill_user_rows(self) -> None:
+        self.user_tree.delete(*self.user_tree.get_children())
+        for row in self.current_user_rows.itertuples(index=False):
+            self.user_tree.insert(
+                "", "end", iid=str(row.USER),
+                values=(
+                    row.USER, f"{row.BASELINE:,}", f"{row.S1_EXCLUDED:,}",
+                    f"{row.S1_REMAINING:,}", row.S1_STATUS, f"{row.S2_EXCLUDED:,}",
+                    f"{row.S2_REMAINING:,}", row.S2_STATUS,
+                ),
+            )
+        self.user_impact_var.set(
+            f"{len(self.current_user_rows):,} users are affected by at least one selected scenario."
+        )
+
+    def _sort_users(self, column: str) -> None:
+        if getattr(self, "current_user_rows", pd.DataFrame()).empty:
+            return
+        numeric = column not in {"USER", "S1_STATUS", "S2_STATUS"}
+        state = getattr(self, "_user_sort", ("S1_EXCLUDED", True))
+        descending = not state[1] if state[0] == column else numeric
+        self._user_sort = (column, descending)
+        self.current_user_rows = self.current_user_rows.sort_values(
+            [column, "USER"] if column != "USER" else ["USER"],
+            ascending=[not descending, True] if column != "USER" else [not descending],
+            kind="stable",
+        )
+        self._fill_user_rows()
+
+    def open_selected_user(self) -> None:
+        selected = self.user_tree.selection()
+        if selected:
+            UserAssignmentDialog(self, self.frame, str(selected[0]), self.current_scenarios)
 
     def _schedule_detail_refresh(self, _event: tk.Event | None = None) -> None:
         if self._details_after_id is not None:

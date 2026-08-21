@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 import pandas as pd
 
 from access_analysis import build_network_data
+from user_analysis import selection_user_summary
 
 
 KIND_LABELS = {"role": "Roles", "privilege": "Privileges"}
@@ -119,6 +120,8 @@ class NetworkView(ttk.Frame):
         self.on_filtered_user_count = on_filtered_user_count
         self.hover_item: tuple[str, object] | None = None
         self.current_details = pd.DataFrame()
+        self.current_users = pd.DataFrame()
+        self.user_focus: str | None = None
         self.max_node_weight = 1
         self.max_edge_weight = 1
         self.zoom_factor = 1.0
@@ -148,6 +151,8 @@ class NetworkView(ttk.Frame):
         self.detail_scope_var = tk.StringVar(value="visible")
         self.expand_selected_var = tk.BooleanVar(value=True)
         self.focus_mode_var = tk.BooleanVar(value=False)
+        self.priority_var = tk.StringVar(value="Impact")
+        self.user_focus_var = tk.StringVar(value="")
 
         self._build_controls()
         self._build_canvas()
@@ -247,8 +252,25 @@ class NetworkView(ttk.Frame):
         ttk.Label(filters, textvariable=self.network_summary_var).grid(
             row=4, column=4, columnspan=4, sticky="e", padx=(10, 0), pady=(2, 0)
         )
+        ttk.Label(filters, text="Prioritise by").grid(row=4, column=0, sticky="w", pady=(2, 0))
+        priority = ttk.Combobox(
+            filters,
+            textvariable=self.priority_var,
+            values=("Impact", "Users", "Connections"),
+            state="readonly",
+            width=28,
+        )
+        priority.grid(row=4, column=1, sticky="w", padx=(5, 12), pady=(2, 0))
+        priority.bind("<<ComboboxSelected>>", lambda _event: self.refresh())
+        self.user_focus_label = ttk.Label(filters, textvariable=self.user_focus_var)
+        self.user_focus_label.grid(row=4, column=2, sticky="w", pady=(2, 0))
+        self.clear_user_focus_button = ttk.Button(
+            filters, text="Clear user focus", command=self.clear_user_focus
+        )
+        self.clear_user_focus_button.grid(row=4, column=3, sticky="e", pady=(2, 0))
+        self.clear_user_focus_button.grid_remove()
         ttk.Label(filters, textvariable=self.filter_error_var, style="Error.TLabel").grid(
-            row=4, column=0, columnspan=4, sticky="w", pady=(2, 0)
+            row=5, column=0, columnspan=4, sticky="w", pady=(2, 0)
         )
         ttk.Label(filters, textvariable=self.role_total_var).grid(
             row=3, column=0, columnspan=2, sticky="w", pady=(2, 0)
@@ -415,8 +437,20 @@ class NetworkView(ttk.Frame):
             side="right", padx=(12, 8)
         )
 
+        notebook = ttk.Notebook(detail_frame)
+        notebook.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        relationships_tab = ttk.Frame(notebook)
+        relationships_tab.rowconfigure(0, weight=1)
+        relationships_tab.columnconfigure(0, weight=1)
+        users_tab = ttk.Frame(notebook)
+        users_tab.rowconfigure(0, weight=1)
+        users_tab.columnconfigure(0, weight=1)
+        notebook.add(relationships_tab, text="Relationships")
+        notebook.add(users_tab, text="Users")
+        self.detail_notebook = notebook
+
         self.detail_tree = ttk.Treeview(
-            detail_frame,
+            relationships_tab,
             columns=("TYPE", "NAME", "USERS", "SHARED_USERS"),
             show="headings",
             height=4,
@@ -430,16 +464,46 @@ class NetworkView(ttk.Frame):
         ):
             self.detail_tree.heading(column, text=heading, command=lambda c=column: self._sort_details(c))
             self.detail_tree.column(column, width=width, anchor=anchor, stretch=column == "NAME")
-        detail_y = ttk.Scrollbar(detail_frame, orient="vertical", command=self.detail_tree.yview)
-        detail_x = ttk.Scrollbar(detail_frame, orient="horizontal", command=self.detail_tree.xview)
+        detail_y = ttk.Scrollbar(relationships_tab, orient="vertical", command=self.detail_tree.yview)
+        detail_x = ttk.Scrollbar(relationships_tab, orient="horizontal", command=self.detail_tree.xview)
         self.detail_tree.configure(yscrollcommand=detail_y.set, xscrollcommand=detail_x.set)
-        self.detail_tree.grid(row=1, column=0, sticky="nsew")
-        detail_y.grid(row=1, column=1, sticky="ns")
-        detail_x.grid(row=2, column=0, sticky="ew")
+        self.detail_tree.grid(row=0, column=0, sticky="nsew")
+        detail_y.grid(row=0, column=1, sticky="ns")
+        detail_x.grid(row=1, column=0, sticky="ew")
         self.detail_tree.bind("<Double-1>", self._focus_detail_row)
         self.detail_tree.bind("<Return>", self._focus_detail_row)
         self.detail_tree.bind("<Control-c>", self._copy_detail_rows)
         self.detail_tree.bind("<Command-c>", self._copy_detail_rows)
+
+        user_columns = (
+            "USER",
+            "MATCHING_ROLES",
+            "MATCHING_PRIVILEGES",
+            "MATCHING_RELATIONSHIPS",
+            "TOTAL_ROLES",
+            "TOTAL_PRIVILEGES",
+            "TOTAL_RELATIONSHIPS",
+        )
+        self.user_tree = ttk.Treeview(users_tab, columns=user_columns, show="headings", height=4)
+        for column, heading, width in (
+            ("USER", "User (hashed)", 260),
+            ("MATCHING_ROLES", "Selected roles", 100),
+            ("MATCHING_PRIVILEGES", "Selected privileges", 115),
+            ("MATCHING_RELATIONSHIPS", "Matching relationships", 145),
+            ("TOTAL_ROLES", "Total roles", 90),
+            ("TOTAL_PRIVILEGES", "Total privileges", 105),
+            ("TOTAL_RELATIONSHIPS", "Total relationships", 120),
+        ):
+            self.user_tree.heading(column, text=heading, command=lambda c=column: self._sort_users(c))
+            self.user_tree.column(column, width=width, anchor="w" if column == "USER" else "e")
+        user_y = ttk.Scrollbar(users_tab, orient="vertical", command=self.user_tree.yview)
+        user_x = ttk.Scrollbar(users_tab, orient="horizontal", command=self.user_tree.xview)
+        self.user_tree.configure(yscrollcommand=user_y.set, xscrollcommand=user_x.set)
+        self.user_tree.grid(row=0, column=0, sticky="nsew")
+        user_y.grid(row=0, column=1, sticky="ns")
+        user_x.grid(row=1, column=0, sticky="ew")
+        self.user_tree.bind("<Double-1>", self._focus_user_row)
+        self.user_tree.bind("<Return>", self._focus_user_row)
         self.detail_frame = detail_frame
         self.clear_selection_button = next(
             widget for widget in header.winfo_children() if isinstance(widget, ttk.Button)
@@ -472,6 +536,9 @@ class NetworkView(ttk.Frame):
 
     def set_data(self, frame: pd.DataFrame) -> None:
         self.frame = frame.copy()
+        self.user_focus = None
+        self.user_focus_var.set("")
+        self.clear_user_focus_button.grid_remove()
         self.selected_node = None
         self.selected_nodes.clear()
         self._set_detail_actions_enabled(False)
@@ -608,6 +675,7 @@ class NetworkView(ttk.Frame):
             self.detail_var.set("Select a SKU to display its network.")
             self.empty_message = "Select a SKU to display its network."
             self._fill_detail_tree(pd.DataFrame())
+            self._fill_user_tree(pd.DataFrame())
             self.draw()
             return
         values = self._filter_values()
@@ -621,6 +689,7 @@ class NetworkView(ttk.Frame):
             max_privileges=max_privileges,
             max_relationships=max_relationships,
             min_shared_users=minimum_shared,
+            selection_priority=self._priority_key(),
         )
         self.nodes = self._apply_full_sku_node_weights(self.nodes)
         match_roles = filtered["ROLE_CODE"].nunique()
@@ -660,6 +729,7 @@ class NetworkView(ttk.Frame):
         self._build_neighbours()
         self.base_order = self._topology_order(self.nodes, self.edges)
         self._fill_detail_tree(pd.DataFrame())
+        self._fill_user_tree(pd.DataFrame())
         if filtered.empty:
             self.empty_message = (
                 "No roles or privileges match the current name and minimum-user filters. "
@@ -699,6 +769,10 @@ class NetworkView(ttk.Frame):
         self.show_read_only_roles_var.set(True)
         self.show_abstract_roles_var.set(True)
         self.show_other_roles_var.set(True)
+        self.priority_var.set("Impact")
+        self.user_focus = None
+        self.user_focus_var.set("")
+        self.clear_user_focus_button.grid_remove()
         if self.search_job is not None:
             self.after_cancel(self.search_job)
             self.search_job = None
@@ -739,6 +813,10 @@ class NetworkView(ttk.Frame):
             filtered = filtered[
                 filtered["ROLE_CODE"].astype(str).isin(eligible_roles)
                 & filtered["PRIVILEGE"].astype(str).isin(eligible_privileges)
+            ]
+        if self.user_focus:
+            filtered = filtered[
+                filtered["USER_LOGIN_HASH"].astype(str).eq(self.user_focus)
             ]
         return filtered
 
@@ -868,6 +946,12 @@ class NetworkView(ttk.Frame):
             self._update_detail_for_selection()
         self.draw()
 
+    def _priority_key(self) -> str:
+        return {
+            "Users": "users",
+            "Connections": "connections",
+        }.get(self.priority_var.get(), "impact")
+
     def _display_data(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         nodes = self.nodes
         edges = self.edges
@@ -886,6 +970,57 @@ class NetworkView(ttk.Frame):
         return nodes, edges
 
     def _topology_order(self, nodes: pd.DataFrame, edges: pd.DataFrame) -> dict[str, list[str]]:
+        if self._priority_key() == "impact":
+            return self._legacy_impact_order(nodes, edges)
+
+        filtered = self._filtered_assignments()
+        try:
+            minimum = max(1, int(self.min_shared_var.get()))
+        except (TypeError, ValueError, tk.TclError):
+            minimum = DEFAULT_MINIMUM_SHARED
+        eligible = (
+            filtered.groupby(["ROLE_CODE", "PRIVILEGE"])["USER_LOGIN_HASH"].nunique()
+            if not filtered.empty
+            else pd.Series(dtype="int64")
+        )
+        eligible = eligible[eligible.ge(minimum)].reset_index(name="USERS")
+        role_connections = eligible.groupby("ROLE_CODE")["PRIVILEGE"].nunique().to_dict()
+        privilege_connections = eligible.groupby("PRIVILEGE")["ROLE_CODE"].nunique().to_dict()
+        maximum_users = max(1, int(nodes["WEIGHT"].max()) if not nodes.empty else 1)
+        maximum_connections = max(
+            1,
+            max(role_connections.values(), default=1),
+            max(privilege_connections.values(), default=1),
+        )
+        priority = self._priority_key()
+
+        def score(row: object) -> tuple[float, int, str]:
+            users = int(row.WEIGHT)
+            connection_map = role_connections if str(row.KIND) == "role" else privilege_connections
+            connections = int(connection_map.get(str(row.LABEL), 0))
+            if priority == "users":
+                primary = users / maximum_users
+            elif priority == "connections":
+                primary = connections / maximum_connections
+            else:
+                primary = users / maximum_users + connections / maximum_connections
+            return (-primary, -users, str(row.LABEL))
+
+        return {
+            kind: [
+                str(row.ID)
+                for row in sorted(
+                    nodes[nodes["KIND"].eq(kind)].itertuples(index=False), key=score
+                )
+            ]
+            for kind in ("role", "privilege")
+        }
+
+    @staticmethod
+    def _legacy_impact_order(
+        nodes: pd.DataFrame, edges: pd.DataFrame
+    ) -> dict[str, list[str]]:
+        """Original user-first, weighted layout that reduces line crossings."""
         role_nodes = nodes[nodes["KIND"].eq("role")].sort_values(
             ["WEIGHT", "LABEL"], ascending=[False, True], kind="stable"
         )
@@ -901,7 +1036,10 @@ class NetworkView(ttk.Frame):
                 connected = edges[edges["SOURCE"].astype(str).eq(role)]
                 total = connected["WEIGHT"].sum()
                 role_score[role] = (
-                    sum(privilege_position.get(str(row.TARGET), 0) * int(row.WEIGHT) for row in connected.itertuples())
+                    sum(
+                        privilege_position.get(str(row.TARGET), 0) * int(row.WEIGHT)
+                        for row in connected.itertuples()
+                    )
                     / total
                     if total
                     else float("inf")
@@ -913,7 +1051,10 @@ class NetworkView(ttk.Frame):
                 connected = edges[edges["TARGET"].astype(str).eq(privilege)]
                 total = connected["WEIGHT"].sum()
                 privilege_score[privilege] = (
-                    sum(role_position.get(str(row.SOURCE), 0) * int(row.WEIGHT) for row in connected.itertuples())
+                    sum(
+                        role_position.get(str(row.SOURCE), 0) * int(row.WEIGHT)
+                        for row in connected.itertuples()
+                    )
                     / total
                     if total
                     else float("inf")
@@ -1205,6 +1346,10 @@ class NetworkView(ttk.Frame):
             self.selected_node = node_id if self.selected_nodes else None
             self._build_selected_expansion()
             self._set_detail_actions_enabled(bool(self.selected_nodes))
+            if self.selected_nodes:
+                self._update_detail_for_selection()
+            else:
+                self.clear_focus()
             self.draw()
         elif node_id == self.selected_node and len(self.selected_nodes) <= 1:
             self.clear_focus()
@@ -1263,7 +1408,7 @@ class NetworkView(ttk.Frame):
             marker = ("node", node_id)
             if marker == self.hover_item:
                 return
-            display_nodes, _ = self._display_data()
+            display_nodes, display_edges = self._display_data()
             match = display_nodes[display_nodes["ID"].astype(str).eq(node_id)]
             if match.empty:
                 return
@@ -1276,10 +1421,21 @@ class NetworkView(ttk.Frame):
                     f"\nRole type: {role_type_label(row['LABEL'])}"
                     f"\nRole group: {ROLE_GROUP_LABELS[self._role_group(row['LABEL'])]}"
                 )
+                total_connections = int(
+                    self.frame.loc[self.frame["ROLE_CODE"].eq(row["LABEL"]), "PRIVILEGE"].nunique()
+                )
+            else:
+                total_connections = int(
+                    self.frame.loc[self.frame["PRIVILEGE"].eq(row["LABEL"]), "ROLE_CODE"].nunique()
+                )
+            visible_neighbours = self._neighbours_for_edges(display_edges)
+            visible_connections = len(visible_neighbours.get(node_id, set()))
             self._show_tooltip(
                 event,
                 f"{kind}: {row['LABEL']}{classification_text}"
-                f"\nTotal SKU users: {int(row['WEIGHT']):,}{key_text}",
+                f"\nTotal SKU users: {int(row['WEIGHT']):,}"
+                f"\nConnections: {total_connections:,} total SKU; "
+                f"{visible_connections:,} visible{key_text}",
                 marker,
             )
             return
@@ -1375,6 +1531,7 @@ class NetworkView(ttk.Frame):
         self._clear_selected_expansion()
         self._set_detail_actions_enabled(False)
         self._fill_detail_tree(pd.DataFrame())
+        self._fill_user_tree(pd.DataFrame())
         filtered = self._filtered_assignments()
         self.selection_users_var.set(
             f"Users matching current filters: {filtered['USER_LOGIN_HASH'].nunique():,}"
@@ -1454,6 +1611,11 @@ class NetworkView(ttk.Frame):
         self.selection_users_var.set(f"Selected {kind.lower()} users: {int(row['WEIGHT']):,}")
         details = visible_details if self.detail_scope_var.get() == "visible" else all_details
         self._fill_detail_tree(details)
+        users = selection_user_summary(
+            self._filtered_assignments(), self.selected_nodes, total_frame=self.frame
+        )
+        self.selection_users_var.set(f"Users matching selected nodes: {len(users):,}")
+        self._fill_user_tree(users)
 
     def _fill_detail_tree(self, details: pd.DataFrame) -> None:
         self.detail_tree.delete(*self.detail_tree.get_children())
@@ -1479,6 +1641,47 @@ class NetworkView(ttk.Frame):
             kind="stable",
         )
         self._fill_detail_tree(self.current_details)
+
+    def _fill_user_tree(self, users: pd.DataFrame) -> None:
+        self.user_tree.delete(*self.user_tree.get_children())
+        self.current_users = users.copy()
+        for row in users.itertuples(index=False):
+            values = [row.USER]
+            values.extend(f"{int(getattr(row, column)):,}" for column in users.columns[1:])
+            self.user_tree.insert("", "end", iid=str(row.USER), values=values)
+
+    def _sort_users(self, column: str) -> None:
+        if self.current_users.empty:
+            return
+        numeric = column != "USER"
+        state = getattr(self, "_user_sort", ("MATCHING_RELATIONSHIPS", True))
+        descending = not state[1] if state[0] == column else numeric
+        self._user_sort = (column, descending)
+        self.current_users = self.current_users.sort_values(
+            [column, "USER"] if column != "USER" else ["USER"],
+            ascending=[not descending, True] if column != "USER" else [not descending],
+            kind="stable",
+        )
+        self._fill_user_tree(self.current_users)
+
+    def _focus_user_row(self, _event: tk.Event | None = None) -> None:
+        selected = self.user_tree.selection()
+        if selected:
+            self.focus_user(str(selected[0]))
+
+    def focus_user(self, user: str) -> None:
+        self.user_focus = str(user)
+        self.user_focus_var.set(f"User focus: {self.user_focus}")
+        self.clear_user_focus_button.grid()
+        self.refresh()
+
+    def clear_user_focus(self) -> None:
+        if not self.user_focus:
+            return
+        self.user_focus = None
+        self.user_focus_var.set("")
+        self.clear_user_focus_button.grid_remove()
+        self.refresh()
 
     def _focus_detail_row(self, _event: tk.Event) -> None:
         selection = self.detail_tree.selection()

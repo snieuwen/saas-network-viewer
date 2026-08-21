@@ -1,6 +1,6 @@
 # Oracle Fusion SaaS network viewer
 
-Current version: **v1.0.0**
+Current version: **v1.1**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-brightgreen.svg)](LICENSE)
@@ -62,6 +62,7 @@ The macOS build is a self-contained Apple Silicon application and does not requi
 - **Minimum shared users** removes relationships below the chosen threshold.
 - Choose **Apply filters**, press Enter in a numeric field, or use a spinbox arrow to apply numeric changes.
 - Choose **Reset filters** to return to the default of 30 roles, 30 privileges, and 30 relationships used for node selection.
+- Use **Prioritise by** to choose which roles and privileges receive priority within those limits and how they are ordered: **Impact** (the original connection-aware, line-crossing-reducing method and the default), **Users**, or **Connections**.
 - The filter summary shows the number displayed alongside the total number available before the limits are applied.
 - The SKU selection area shows both **Total SKU users** and **Filtered SKU users**. The filtered count updates with the active name, role-group, read-only, Abstract, Other-role, and minimum-user filters.
 - The graph selects a connected set of the strongest relationships while maximising useful role and privilege coverage.
@@ -72,23 +73,30 @@ The macOS build is a self-contained Apple Silicon application and does not requi
 - Role colours distinguish ordinary roles, Oracle predefined roles, Application Implementation roles, and roles matching the configured read-only word. These display classifications are included in PNG and Excel exports. They describe role provenance or naming only and do not determine effective access or licensing impact.
 - A small **A** badge identifies abstract roles without replacing their existing group colour. Role tooltips show the inferred role type and display group. The badge and role type are also included in exports.
 - Roles and privileges are packed independently: larger nodes receive more vertical space, while smaller nodes use less.
-- The initial vertical order starts from total SKU users (then name) and applies two weighted topology passes to reduce line crossings. When a selection reveals hidden connections, the revealed nodes are inserted using the same topology ordering while nodes that were already visible retain their relative order. Changing the filters creates a new initial order.
+- The initial vertical order follows the selected priority. **Impact** preserves the original user-first, weighted topology method that reduces line crossings. **Users** and **Connections** provide explicit descending rankings by the named measure. When a selection reveals hidden connections, previously visible nodes retain their relative positions.
 - Roles and privileges revealed by a selection use lighter variants of their normal colours. The legend places **Revealed roles** beside **Roles** and **Revealed privileges** beside **Privileges**; the Excel export identifies them as **Revealed by selection**.
 - When a role or privilege maximum hides available nodes, a note below the affected column identifies the limiting control. The note is omitted when all matching nodes are shown.
 - Node size represents total distinct users for that role or privilege in the complete SKU.
 - Line width represents distinct users shared by that role and privilege in the complete SKU.
 - A star marks the most connected nodes in the currently visible network.
-- Hover over a node or line to see exact details.
+- Hover over a node to see total SKU users plus total and currently visible connections. Hover over a line to see its shared-user count.
 - Select a node to highlight its relationships while keeping the complete visible network in place. The selected role or privilege name is also copied automatically to the Windows clipboard. **Show all connections for selected node** is enabled by default: selecting a role adds any connected privileges omitted by the initial limits, and selecting a privilege adds any omitted connected roles. This works in either direction, including when selecting a node that was just added. Clear the selection to restore the initial limited overview.
 - Enable **Show only selected node's connections** to hide unrelated nodes and relationships instead. Active text searches, **Minimum role/privilege users**, and **Minimum shared users** still apply to expanded selections.
-- Select **Show details** to open the relationship table at the bottom and **Hide details** to return that space to the network. The panel starts collapsed and always reflects the current selection when opened.
+- Select **Show details** to open a bottom panel with **Relationships** and **Users** tabs. The Users tab lists the hashed users who hold every selected role and privilege, together with selected-node and complete-SKU counts. Double-click a user to focus the network on that user's assignments; choose **Clear user focus** to return to all filtered users.
 - Clear a selection by selecting the same node again, clicking empty graph space, pressing **Esc**, or choosing **Clear selection**.
 - Switch the detail table between **Visible relationships** and **All relationships**.
 - Sort the detail table by selecting a column heading. Double-click a row to navigate to that node. Press **Ctrl+C** to copy selected rows.
 - Use the mouse wheel to scroll, Shift+wheel to scroll horizontally, Ctrl+wheel or the +/− buttons to zoom, and the middle mouse button to pan.
 - **Fit width** restores a useful horizontal scale.
 
-Individual users are deliberately not displayed as nodes. This keeps large SKU networks readable while retaining distinct-user counts in node and relationship weights.
+Individual users are deliberately not displayed as network nodes. They are available as sortable rows in the selection details, scenario report, and User Explorer, using the workbook's hashed user ID.
+
+## Explore users
+
+- Choose **User explorer…** in the main title bar for a sortable SKU-wide user inventory.
+- Search a case-insensitive part of the hashed user ID, optionally select a scenario, and filter by **Affected**, **Removed from scope**, or **Unaffected**.
+- Counts show distinct roles, privileges, baseline relationships, excluded relationships, and remaining relationships.
+- Double-click a row to inspect every assignment and its scenario result, or choose **Focus user in network** to show only that user's filtered role/privilege network.
 
 ## User guide
 
@@ -107,6 +115,7 @@ The illustrated English user guide is available in both [Word](docs/Oracle-Fusio
 - Choose an existing scenario from the list or choose **Create new scenario…** and enter a name. A scenario can record globally excluded roles, globally excluded privileges, and exact privilege-role relationships. It never changes the source workbook or the displayed network.
 - The confirmation shows a simple access-based impact: users with an excluded assignment, users remaining in scope, and users with no remaining assignment after the exclusions.
 - Choose **Scenario report…** in the main title bar to compare the unrestricted baseline with up to two named scenarios side by side. Comparison headings and values are left-aligned. Long role and privilege exclusion lists are abbreviated to fit the current column width; resize a column to show more or fewer entries, or double-click a scenario (or use **View complete exclusions…**) to open the complete scrollable list.
+- The report's **User impact** tab lists users affected by either selected scenario, including baseline, excluded, and remaining relationship counts and whether the user is partly affected or completely removed from scope. Double-click a user for the complete assignment-level explanation for the baseline and both scenarios.
 - In the report, select a scenario and choose **Edit selected scenario…** to remove individual role, privilege, or privilege-role exclusions.
 - Each scenario is automatically saved as an Excel workbook in the local `scenarios` folder beside the source files, or beside the executable in a standalone build. This folder is excluded from Git. The file is named after the scenario, and saved scenarios are loaded automatically when the application starts. Use **Reload saved scenarios** in the report after adding files to that folder manually. Scenarios are matched to their SKU and service, so unrelated scenarios are not offered for comparison.
 - A scenario workbook has exactly three sheets: **Roles**, **Privileges**, and **Privilege-Roles**. Every row whose first cell starts with `#` is a comment or group heading and is ignored by calculations. The first row of each sheet explains this rule, and row 2 contains the column headers.

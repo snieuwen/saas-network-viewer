@@ -62,6 +62,7 @@ def build_network_data(
     privilege_query: str = "",
     min_shared_users: int = 1,
     min_node_users: int = 1,
+    selection_priority: str = "impact",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Create a bounded, connection-aware role/privilege network."""
     if frame.empty:
@@ -112,6 +113,33 @@ def build_network_data(
     if candidate_edges.empty:
         return _empty_network()
 
+    priority = str(selection_priority).strip().casefold()
+    if priority not in {"impact", "users", "connections"}:
+        priority = "impact"
+    role_users = clean.groupby("ROLE_CODE")["USER_LOGIN_HASH"].nunique().to_dict()
+    privilege_users = clean.groupby("PRIVILEGE")["USER_LOGIN_HASH"].nunique().to_dict()
+    role_connections = candidate_edges.groupby("ROLE_CODE")["PRIVILEGE"].nunique().to_dict()
+    privilege_connections = candidate_edges.groupby("PRIVILEGE")["ROLE_CODE"].nunique().to_dict()
+    maximum_users = max(1, max(role_users.values(), default=1), max(privilege_users.values(), default=1))
+    maximum_connections = max(
+        1,
+        max(role_connections.values(), default=1),
+        max(privilege_connections.values(), default=1),
+    )
+
+    def edge_priority(role: str, privilege: str) -> float:
+        users_score = (int(role_users.get(role, 0)) + int(privilege_users.get(privilege, 0))) / maximum_users
+        connections_score = (
+            int(role_connections.get(role, 0)) + int(privilege_connections.get(privilege, 0))
+        ) / maximum_connections
+        if priority == "users":
+            return users_score
+        if priority == "connections":
+            return connections_score
+        # Preserve the original connection-aware behaviour for Impact: after
+        # maximising node coverage, shared users determine which edge wins.
+        return 0.0
+
     # Select the strongest connected relationships instead of independently taking
     # two Top-X lists, which can leave high-ranking but disconnected nodes behind.
     candidates = list(candidate_edges.itertuples(index=False))
@@ -122,7 +150,7 @@ def build_network_data(
     # First maximise useful node coverage. Weight breaks ties so that coverage is
     # still built from the strongest available relationships.
     while len(chosen_pairs) < maximum_relationships:
-        best: tuple[tuple[int, int], str, str, int] | None = None
+        best: tuple[tuple[int, float, int], str, str, int] | None = None
         for edge in candidates:
             role = str(edge.ROLE_CODE)
             privilege = str(edge.PRIVILEGE)
@@ -137,7 +165,7 @@ def build_network_data(
             new_nodes = int(role_is_new) + int(privilege_is_new)
             if new_nodes == 0:
                 continue
-            score = (new_nodes, int(edge.WEIGHT))
+            score = (new_nodes, edge_priority(role, privilege), int(edge.WEIGHT))
             if best is None or score > best[0]:
                 best = (score, role, privilege, int(edge.WEIGHT))
         if best is None:
